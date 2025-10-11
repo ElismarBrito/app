@@ -1,0 +1,430 @@
+-- Merging decision tree log ---
+provider#androidx.core.content.FileProvider
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:82:9-90:20
+	android:grantUriPermissions
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:86:13-47
+	android:authorities
+		INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:84:13-64
+	android:exported
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:85:13-37
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:83:13-62
+manifest
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-92:12
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-92:12
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-92:12
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-92:12
+MERGED from [:capacitor-camera] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/camera/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:2:1-13:12
+MERGED from [com.google.android.material:material:1.10.0] /home/elismar/.gradle/caches/8.9/transforms/385e47836df0dfb1ab2f615b667bf9b6/transformed/material-1.10.0/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] /home/elismar/.gradle/caches/8.9/transforms/d882f7c6d99418c0b721ee4ebb91ddbc/transformed/constraintlayout-2.1.4/AndroidManifest.xml:2:1-11:12
+MERGED from [:capacitor-android] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/android/capacitor/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.appcompat:appcompat-resources:1.7.0] /home/elismar/.gradle/caches/8.9/transforms/9b9f45539bacb1274e4cb90eb0d50782/transformed/jetified-appcompat-resources-1.7.0/AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.appcompat:appcompat:1.7.0] /home/elismar/.gradle/caches/8.9/transforms/e25716bc6dd84c304bc1af80b5c5f26c/transformed/appcompat-1.7.0/AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.emoji2:emoji2-views-helper:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/30d00379867045c6d6d760d2138e397b/transformed/jetified-emoji2-views-helper-1.3.0/AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:17:1-35:12
+MERGED from [androidx.viewpager2:viewpager2:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/8dbaeeb0bc544f07f2e5cc237e452786/transformed/jetified-viewpager2-1.0.0/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.fragment:fragment:1.6.2] /home/elismar/.gradle/caches/8.9/transforms/a340cf1db3da6d0dcfe07d5702d796ed/transformed/fragment-1.6.2/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.activity:activity:1.8.0] /home/elismar/.gradle/caches/8.9/transforms/297ab91d0368512371db2ccbbc4ba6b4/transformed/jetified-activity-1.8.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.coordinatorlayout:coordinatorlayout:1.2.0] /home/elismar/.gradle/caches/8.9/transforms/4a39ead1514878498e9d3f52b677af5f/transformed/coordinatorlayout-1.2.0/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.webkit:webkit:1.9.0] /home/elismar/.gradle/caches/8.9/transforms/b649de8354ed4f690b3fac444e959741/transformed/webkit-1.9.0/AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.drawerlayout:drawerlayout:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/6c897553af1ee30489ef4e51fb16c819/transformed/drawerlayout-1.1.1/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.dynamicanimation:dynamicanimation:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/c4d9cc2c37c273e457060fbfc5a0eccb/transformed/dynamicanimation-1.0.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.transition:transition:1.2.0] /home/elismar/.gradle/caches/8.9/transforms/052e4ec81cf49e84e1643b82be4f6a2b/transformed/transition-1.2.0/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.vectordrawable:vectordrawable-animated:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/477a7544f1caf669f87008c29d966069/transformed/vectordrawable-animated-1.1.0/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.vectordrawable:vectordrawable:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/79fd73b71a2ee3e9d6eb026ab4500001/transformed/vectordrawable-1.1.0/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.legacy:legacy-support-core-utils:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/ad6ef8d765245cda9c681f218363f160/transformed/legacy-support-core-utils-1.0.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.loader:loader:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/0536d5e7197df18799f1718864fb818d/transformed/loader-1.0.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.viewpager:viewpager:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/bcc6dc51dee94cafabbfef729f774007/transformed/viewpager-1.0.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.recyclerview:recyclerview:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/bddcf748bc6cf86e59fefc8fa36a3961/transformed/recyclerview-1.1.0/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.customview:customview:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/a97f552e89938541f7f07583c5104122/transformed/customview-1.1.0/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:17:1-30:12
+MERGED from [androidx.savedstate:savedstate:1.2.1] /home/elismar/.gradle/caches/8.9/transforms/18a6365f34e73e55a1cb0660ce9c0347/transformed/jetified-savedstate-1.2.1/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.lifecycle:lifecycle-livedata:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/158b1c5603cfe0c62dbb6c2285347402/transformed/lifecycle-livedata-2.6.2/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.lifecycle:lifecycle-viewmodel:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/8805f75c58c89c5e4a4ae275b0017947/transformed/lifecycle-viewmodel-2.6.2/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.lifecycle:lifecycle-process:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/f811985a0ac83152c70816caa3bfc302/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:17:1-35:12
+MERGED from [androidx.lifecycle:lifecycle-livedata-core:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/598eed770baa2a2836fd1c09ebd2d052/transformed/lifecycle-livedata-core-2.6.2/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.lifecycle:lifecycle-runtime:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/ec21653e4672f3133b9dd1dc417b77fe/transformed/lifecycle-runtime-2.6.2/AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/9697b3088168ca0c46ba24d204d8281f/transformed/jetified-lifecycle-viewmodel-savedstate-2.6.2/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.core:core-ktx:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/5c12efd10b50efa2027f17b01361da33/transformed/jetified-core-ktx-1.13.1/AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.annotation:annotation-experimental:1.4.0] /home/elismar/.gradle/caches/8.9/transforms/8efa414e3391d5eaeca26229613a7d00/transformed/jetified-annotation-experimental-1.4.0/AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.exifinterface:exifinterface:1.3.6] /home/elismar/.gradle/caches/8.9/transforms/c9a810ada327a73140213fe8642cc5a7/transformed/exifinterface-1.3.6/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/d678cadec31efe1770779d3e8ff5c3d0/transformed/cursoradapter-1.0.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:17:1-55:12
+MERGED from [androidx.cardview:cardview:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/6c30346623de510ca96c99cb04c98a8e/transformed/cardview-1.0.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/177089a98816bf70f68546bb87f50365/transformed/versionedparcelable-1.1.1/AndroidManifest.xml:17:1-27:12
+MERGED from [androidx.startup:startup-runtime:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/f2f1a6cf69213c36f049038475ace36d/transformed/jetified-startup-runtime-1.1.1/AndroidManifest.xml:17:1-33:12
+MERGED from [androidx.interpolator:interpolator:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/3f8c6ffa42987408812f5c29c4cfc6e0/transformed/interpolator-1.0.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.tracing:tracing:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/f927de543ddd145dee7adcb036797eb4/transformed/jetified-tracing-1.0.0/AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.arch.core:core-runtime:2.2.0] /home/elismar/.gradle/caches/8.9/transforms/ee92bf00d8d7a1beb3133b2de9281381/transformed/core-runtime-2.2.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.documentfile:documentfile:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/f7792ad6c6b9924e5a7159beda0054bb/transformed/documentfile-1.0.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/2cc1b9ca3123c3f536d848724f949a6e/transformed/localbroadcastmanager-1.0.0/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.print:print:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/fb47237c6bf587b1eed382c98da857ea/transformed/print-1.0.0/AndroidManifest.xml:17:1-22:12
+MERGED from [org.apache.cordova:framework:10.1.1] /home/elismar/.gradle/caches/8.9/transforms/45a6d877808ab53f63a3e321846203bc/transformed/jetified-framework-10.1.1/AndroidManifest.xml:20:1-27:12
+	package
+		INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
+	android:versionName
+		INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
+	android:versionCode
+		INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:11-69
+uses-permission#android.permission.CALL_PHONE
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:5:5-69
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:5:22-66
+uses-permission#android.permission.READ_PHONE_STATE
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:6:5-75
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:6:22-72
+uses-permission#android.permission.READ_PHONE_NUMBERS
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:7:5-77
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:7:22-74
+uses-permission#android.permission.RECORD_AUDIO
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:8:5-71
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:8:22-68
+uses-permission#android.permission.MODIFY_AUDIO_SETTINGS
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:9:5-80
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:9:22-77
+uses-permission#android.permission.WAKE_LOCK
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:10:5-68
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:10:22-65
+uses-permission#android.permission.INTERNET
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:13:5-67
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:13:22-64
+uses-permission#android.permission.ACCESS_NETWORK_STATE
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:14:5-79
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:14:22-76
+uses-permission#android.permission.BIND_TELECOM_CONNECTION_SERVICE
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:17:5-90
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:17:22-87
+uses-permission#android.permission.BIND_INCALL_SERVICE
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:18:5-78
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:18:22-75
+application
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:20:5-91:19
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:20:5-91:19
+MERGED from [com.google.android.material:material:1.10.0] /home/elismar/.gradle/caches/8.9/transforms/385e47836df0dfb1ab2f615b667bf9b6/transformed/material-1.10.0/AndroidManifest.xml:22:5-20
+MERGED from [com.google.android.material:material:1.10.0] /home/elismar/.gradle/caches/8.9/transforms/385e47836df0dfb1ab2f615b667bf9b6/transformed/material-1.10.0/AndroidManifest.xml:22:5-20
+MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] /home/elismar/.gradle/caches/8.9/transforms/d882f7c6d99418c0b721ee4ebb91ddbc/transformed/constraintlayout-2.1.4/AndroidManifest.xml:9:5-20
+MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] /home/elismar/.gradle/caches/8.9/transforms/d882f7c6d99418c0b721ee4ebb91ddbc/transformed/constraintlayout-2.1.4/AndroidManifest.xml:9:5-20
+MERGED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:23:5-33:19
+MERGED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:23:5-33:19
+MERGED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:28:5-89
+MERGED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:28:5-89
+MERGED from [androidx.lifecycle:lifecycle-process:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/f811985a0ac83152c70816caa3bfc302/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:23:5-33:19
+MERGED from [androidx.lifecycle:lifecycle-process:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/f811985a0ac83152c70816caa3bfc302/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:23:5-33:19
+MERGED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:23:5-53:19
+MERGED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:23:5-53:19
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/177089a98816bf70f68546bb87f50365/transformed/versionedparcelable-1.1.1/AndroidManifest.xml:24:5-25:19
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/177089a98816bf70f68546bb87f50365/transformed/versionedparcelable-1.1.1/AndroidManifest.xml:24:5-25:19
+MERGED from [androidx.startup:startup-runtime:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/f2f1a6cf69213c36f049038475ace36d/transformed/jetified-startup-runtime-1.1.1/AndroidManifest.xml:25:5-31:19
+MERGED from [androidx.startup:startup-runtime:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/f2f1a6cf69213c36f049038475ace36d/transformed/jetified-startup-runtime-1.1.1/AndroidManifest.xml:25:5-31:19
+	android:extractNativeLibs
+		INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
+	android:appComponentFactory
+		ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:28:18-86
+	android:label
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:23:9-41
+	android:icon
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:22:9-43
+	android:allowBackup
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:21:9-35
+	android:theme
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:24:9-40
+activity#com.pbxmobile.app.MainActivity
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:27:9-58:20
+	android:launchMode
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:30:13-44
+	android:exported
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:29:13-36
+	android:theme
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:31:13-62
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:28:13-41
+intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:33:13-36:29
+action#android.intent.action.MAIN
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:34:17-69
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:34:25-66
+category#android.intent.category.LAUNCHER
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:35:17-77
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:35:27-74
+intent-filter#action:name:android.intent.action.DIAL+category:name:android.intent.category.DEFAULT+data:scheme:tel
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:39:13-43:29
+action#android.intent.action.DIAL
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:40:17-69
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:40:25-66
+category#android.intent.category.DEFAULT
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:41:17-76
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:41:27-73
+data
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:42:17-46
+	android:scheme
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:42:23-43
+intent-filter#action:name:android.intent.action.CALL+category:name:android.intent.category.DEFAULT+data:scheme:tel
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:45:13-49:29
+action#android.intent.action.CALL
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:46:17-69
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:46:25-66
+intent-filter#action:name:android.intent.action.VIEW+category:name:android.intent.category.BROWSABLE+category:name:android.intent.category.DEFAULT+data:scheme:tel
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:51:13-56:29
+action#android.intent.action.VIEW
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:52:17-69
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:52:25-66
+category#android.intent.category.BROWSABLE
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:53:17-78
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:53:27-75
+service#app.lovable.pbxmobile.MyConnectionService
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:61:9-68:19
+	android:exported
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:64:13-36
+	android:permission
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:63:13-84
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:62:13-69
+intent-filter#action:name:android.telecom.ConnectionService
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:65:13-67:29
+action#android.telecom.ConnectionService
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:66:17-76
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:66:25-73
+service#app.lovable.pbxmobile.MyInCallService
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:71:9-80:19
+	android:exported
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:74:13-36
+	android:permission
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:73:13-72
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:72:13-65
+intent-filter#action:name:android.telecom.InCallService
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:75:13-77:29
+action#android.telecom.InCallService
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:76:17-72
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:76:25-69
+meta-data#android.telecom.IN_CALL_SERVICE_UI
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:78:13-79:47
+	android:value
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:79:24-44
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:78:24-73
+meta-data#android.support.FILE_PROVIDER_PATHS
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:87:13-89:64
+	android:resource
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:89:17-51
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:88:17-67
+uses-sdk
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
+MERGED from [:capacitor-camera] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/camera/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:5:5-44
+MERGED from [:capacitor-camera] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/camera/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:5:5-44
+MERGED from [com.google.android.material:material:1.10.0] /home/elismar/.gradle/caches/8.9/transforms/385e47836df0dfb1ab2f615b667bf9b6/transformed/material-1.10.0/AndroidManifest.xml:20:5-44
+MERGED from [com.google.android.material:material:1.10.0] /home/elismar/.gradle/caches/8.9/transforms/385e47836df0dfb1ab2f615b667bf9b6/transformed/material-1.10.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] /home/elismar/.gradle/caches/8.9/transforms/d882f7c6d99418c0b721ee4ebb91ddbc/transformed/constraintlayout-2.1.4/AndroidManifest.xml:5:5-7:41
+MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] /home/elismar/.gradle/caches/8.9/transforms/d882f7c6d99418c0b721ee4ebb91ddbc/transformed/constraintlayout-2.1.4/AndroidManifest.xml:5:5-7:41
+MERGED from [:capacitor-android] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/android/capacitor/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:5:5-44
+MERGED from [:capacitor-android] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/android/capacitor/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:5:5-44
+MERGED from [androidx.appcompat:appcompat-resources:1.7.0] /home/elismar/.gradle/caches/8.9/transforms/9b9f45539bacb1274e4cb90eb0d50782/transformed/jetified-appcompat-resources-1.7.0/AndroidManifest.xml:5:5-44
+MERGED from [androidx.appcompat:appcompat-resources:1.7.0] /home/elismar/.gradle/caches/8.9/transforms/9b9f45539bacb1274e4cb90eb0d50782/transformed/jetified-appcompat-resources-1.7.0/AndroidManifest.xml:5:5-44
+MERGED from [androidx.appcompat:appcompat:1.7.0] /home/elismar/.gradle/caches/8.9/transforms/e25716bc6dd84c304bc1af80b5c5f26c/transformed/appcompat-1.7.0/AndroidManifest.xml:5:5-44
+MERGED from [androidx.appcompat:appcompat:1.7.0] /home/elismar/.gradle/caches/8.9/transforms/e25716bc6dd84c304bc1af80b5c5f26c/transformed/appcompat-1.7.0/AndroidManifest.xml:5:5-44
+MERGED from [androidx.emoji2:emoji2-views-helper:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/30d00379867045c6d6d760d2138e397b/transformed/jetified-emoji2-views-helper-1.3.0/AndroidManifest.xml:5:5-44
+MERGED from [androidx.emoji2:emoji2-views-helper:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/30d00379867045c6d6d760d2138e397b/transformed/jetified-emoji2-views-helper-1.3.0/AndroidManifest.xml:5:5-44
+MERGED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:21:5-44
+MERGED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:21:5-44
+MERGED from [androidx.viewpager2:viewpager2:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/8dbaeeb0bc544f07f2e5cc237e452786/transformed/jetified-viewpager2-1.0.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.viewpager2:viewpager2:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/8dbaeeb0bc544f07f2e5cc237e452786/transformed/jetified-viewpager2-1.0.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.fragment:fragment:1.6.2] /home/elismar/.gradle/caches/8.9/transforms/a340cf1db3da6d0dcfe07d5702d796ed/transformed/fragment-1.6.2/AndroidManifest.xml:20:5-44
+MERGED from [androidx.fragment:fragment:1.6.2] /home/elismar/.gradle/caches/8.9/transforms/a340cf1db3da6d0dcfe07d5702d796ed/transformed/fragment-1.6.2/AndroidManifest.xml:20:5-44
+MERGED from [androidx.activity:activity:1.8.0] /home/elismar/.gradle/caches/8.9/transforms/297ab91d0368512371db2ccbbc4ba6b4/transformed/jetified-activity-1.8.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.activity:activity:1.8.0] /home/elismar/.gradle/caches/8.9/transforms/297ab91d0368512371db2ccbbc4ba6b4/transformed/jetified-activity-1.8.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.coordinatorlayout:coordinatorlayout:1.2.0] /home/elismar/.gradle/caches/8.9/transforms/4a39ead1514878498e9d3f52b677af5f/transformed/coordinatorlayout-1.2.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.coordinatorlayout:coordinatorlayout:1.2.0] /home/elismar/.gradle/caches/8.9/transforms/4a39ead1514878498e9d3f52b677af5f/transformed/coordinatorlayout-1.2.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.webkit:webkit:1.9.0] /home/elismar/.gradle/caches/8.9/transforms/b649de8354ed4f690b3fac444e959741/transformed/webkit-1.9.0/AndroidManifest.xml:5:5-44
+MERGED from [androidx.webkit:webkit:1.9.0] /home/elismar/.gradle/caches/8.9/transforms/b649de8354ed4f690b3fac444e959741/transformed/webkit-1.9.0/AndroidManifest.xml:5:5-44
+MERGED from [androidx.drawerlayout:drawerlayout:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/6c897553af1ee30489ef4e51fb16c819/transformed/drawerlayout-1.1.1/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.drawerlayout:drawerlayout:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/6c897553af1ee30489ef4e51fb16c819/transformed/drawerlayout-1.1.1/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.dynamicanimation:dynamicanimation:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/c4d9cc2c37c273e457060fbfc5a0eccb/transformed/dynamicanimation-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.dynamicanimation:dynamicanimation:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/c4d9cc2c37c273e457060fbfc5a0eccb/transformed/dynamicanimation-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.transition:transition:1.2.0] /home/elismar/.gradle/caches/8.9/transforms/052e4ec81cf49e84e1643b82be4f6a2b/transformed/transition-1.2.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.transition:transition:1.2.0] /home/elismar/.gradle/caches/8.9/transforms/052e4ec81cf49e84e1643b82be4f6a2b/transformed/transition-1.2.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.vectordrawable:vectordrawable-animated:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/477a7544f1caf669f87008c29d966069/transformed/vectordrawable-animated-1.1.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.vectordrawable:vectordrawable-animated:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/477a7544f1caf669f87008c29d966069/transformed/vectordrawable-animated-1.1.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.vectordrawable:vectordrawable:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/79fd73b71a2ee3e9d6eb026ab4500001/transformed/vectordrawable-1.1.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.vectordrawable:vectordrawable:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/79fd73b71a2ee3e9d6eb026ab4500001/transformed/vectordrawable-1.1.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.legacy:legacy-support-core-utils:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/ad6ef8d765245cda9c681f218363f160/transformed/legacy-support-core-utils-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.legacy:legacy-support-core-utils:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/ad6ef8d765245cda9c681f218363f160/transformed/legacy-support-core-utils-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.loader:loader:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/0536d5e7197df18799f1718864fb818d/transformed/loader-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.loader:loader:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/0536d5e7197df18799f1718864fb818d/transformed/loader-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.viewpager:viewpager:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/bcc6dc51dee94cafabbfef729f774007/transformed/viewpager-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.viewpager:viewpager:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/bcc6dc51dee94cafabbfef729f774007/transformed/viewpager-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.recyclerview:recyclerview:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/bddcf748bc6cf86e59fefc8fa36a3961/transformed/recyclerview-1.1.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.recyclerview:recyclerview:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/bddcf748bc6cf86e59fefc8fa36a3961/transformed/recyclerview-1.1.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.customview:customview:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/a97f552e89938541f7f07583c5104122/transformed/customview-1.1.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.customview:customview:1.1.0] /home/elismar/.gradle/caches/8.9/transforms/a97f552e89938541f7f07583c5104122/transformed/customview-1.1.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:20:5-44
+MERGED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:20:5-44
+MERGED from [androidx.savedstate:savedstate:1.2.1] /home/elismar/.gradle/caches/8.9/transforms/18a6365f34e73e55a1cb0660ce9c0347/transformed/jetified-savedstate-1.2.1/AndroidManifest.xml:20:5-44
+MERGED from [androidx.savedstate:savedstate:1.2.1] /home/elismar/.gradle/caches/8.9/transforms/18a6365f34e73e55a1cb0660ce9c0347/transformed/jetified-savedstate-1.2.1/AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-livedata:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/158b1c5603cfe0c62dbb6c2285347402/transformed/lifecycle-livedata-2.6.2/AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-livedata:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/158b1c5603cfe0c62dbb6c2285347402/transformed/lifecycle-livedata-2.6.2/AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-viewmodel:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/8805f75c58c89c5e4a4ae275b0017947/transformed/lifecycle-viewmodel-2.6.2/AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-viewmodel:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/8805f75c58c89c5e4a4ae275b0017947/transformed/lifecycle-viewmodel-2.6.2/AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-process:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/f811985a0ac83152c70816caa3bfc302/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:21:5-44
+MERGED from [androidx.lifecycle:lifecycle-process:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/f811985a0ac83152c70816caa3bfc302/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:21:5-44
+MERGED from [androidx.lifecycle:lifecycle-livedata-core:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/598eed770baa2a2836fd1c09ebd2d052/transformed/lifecycle-livedata-core-2.6.2/AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-livedata-core:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/598eed770baa2a2836fd1c09ebd2d052/transformed/lifecycle-livedata-core-2.6.2/AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-runtime:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/ec21653e4672f3133b9dd1dc417b77fe/transformed/lifecycle-runtime-2.6.2/AndroidManifest.xml:5:5-44
+MERGED from [androidx.lifecycle:lifecycle-runtime:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/ec21653e4672f3133b9dd1dc417b77fe/transformed/lifecycle-runtime-2.6.2/AndroidManifest.xml:5:5-44
+MERGED from [androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/9697b3088168ca0c46ba24d204d8281f/transformed/jetified-lifecycle-viewmodel-savedstate-2.6.2/AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/9697b3088168ca0c46ba24d204d8281f/transformed/jetified-lifecycle-viewmodel-savedstate-2.6.2/AndroidManifest.xml:20:5-44
+MERGED from [androidx.core:core-ktx:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/5c12efd10b50efa2027f17b01361da33/transformed/jetified-core-ktx-1.13.1/AndroidManifest.xml:5:5-44
+MERGED from [androidx.core:core-ktx:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/5c12efd10b50efa2027f17b01361da33/transformed/jetified-core-ktx-1.13.1/AndroidManifest.xml:5:5-44
+MERGED from [androidx.annotation:annotation-experimental:1.4.0] /home/elismar/.gradle/caches/8.9/transforms/8efa414e3391d5eaeca26229613a7d00/transformed/jetified-annotation-experimental-1.4.0/AndroidManifest.xml:5:5-44
+MERGED from [androidx.annotation:annotation-experimental:1.4.0] /home/elismar/.gradle/caches/8.9/transforms/8efa414e3391d5eaeca26229613a7d00/transformed/jetified-annotation-experimental-1.4.0/AndroidManifest.xml:5:5-44
+MERGED from [androidx.exifinterface:exifinterface:1.3.6] /home/elismar/.gradle/caches/8.9/transforms/c9a810ada327a73140213fe8642cc5a7/transformed/exifinterface-1.3.6/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.exifinterface:exifinterface:1.3.6] /home/elismar/.gradle/caches/8.9/transforms/c9a810ada327a73140213fe8642cc5a7/transformed/exifinterface-1.3.6/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/d678cadec31efe1770779d3e8ff5c3d0/transformed/cursoradapter-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/d678cadec31efe1770779d3e8ff5c3d0/transformed/cursoradapter-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:21:5-44
+MERGED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:21:5-44
+MERGED from [androidx.cardview:cardview:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/6c30346623de510ca96c99cb04c98a8e/transformed/cardview-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.cardview:cardview:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/6c30346623de510ca96c99cb04c98a8e/transformed/cardview-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/177089a98816bf70f68546bb87f50365/transformed/versionedparcelable-1.1.1/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/177089a98816bf70f68546bb87f50365/transformed/versionedparcelable-1.1.1/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.startup:startup-runtime:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/f2f1a6cf69213c36f049038475ace36d/transformed/jetified-startup-runtime-1.1.1/AndroidManifest.xml:21:5-23:41
+MERGED from [androidx.startup:startup-runtime:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/f2f1a6cf69213c36f049038475ace36d/transformed/jetified-startup-runtime-1.1.1/AndroidManifest.xml:21:5-23:41
+MERGED from [androidx.interpolator:interpolator:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/3f8c6ffa42987408812f5c29c4cfc6e0/transformed/interpolator-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.interpolator:interpolator:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/3f8c6ffa42987408812f5c29c4cfc6e0/transformed/interpolator-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.tracing:tracing:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/f927de543ddd145dee7adcb036797eb4/transformed/jetified-tracing-1.0.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.tracing:tracing:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/f927de543ddd145dee7adcb036797eb4/transformed/jetified-tracing-1.0.0/AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.arch.core:core-runtime:2.2.0] /home/elismar/.gradle/caches/8.9/transforms/ee92bf00d8d7a1beb3133b2de9281381/transformed/core-runtime-2.2.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.arch.core:core-runtime:2.2.0] /home/elismar/.gradle/caches/8.9/transforms/ee92bf00d8d7a1beb3133b2de9281381/transformed/core-runtime-2.2.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.documentfile:documentfile:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/f7792ad6c6b9924e5a7159beda0054bb/transformed/documentfile-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.documentfile:documentfile:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/f7792ad6c6b9924e5a7159beda0054bb/transformed/documentfile-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/2cc1b9ca3123c3f536d848724f949a6e/transformed/localbroadcastmanager-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/2cc1b9ca3123c3f536d848724f949a6e/transformed/localbroadcastmanager-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.print:print:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/fb47237c6bf587b1eed382c98da857ea/transformed/print-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [androidx.print:print:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/fb47237c6bf587b1eed382c98da857ea/transformed/print-1.0.0/AndroidManifest.xml:20:5-44
+MERGED from [org.apache.cordova:framework:10.1.1] /home/elismar/.gradle/caches/8.9/transforms/45a6d877808ab53f63a3e321846203bc/transformed/jetified-framework-10.1.1/AndroidManifest.xml:25:5-44
+MERGED from [org.apache.cordova:framework:10.1.1] /home/elismar/.gradle/caches/8.9/transforms/45a6d877808ab53f63a3e321846203bc/transformed/jetified-framework-10.1.1/AndroidManifest.xml:25:5-44
+	android:targetSdkVersion
+		INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
+queries
+ADDED from [:capacitor-camera] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/camera/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:7:5-11:15
+intent#action:name:android.media.action.IMAGE_CAPTURE
+ADDED from [:capacitor-camera] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/camera/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:8:9-10:18
+action#android.media.action.IMAGE_CAPTURE
+ADDED from [:capacitor-camera] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/camera/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:9:13-73
+	android:name
+		ADDED from [:capacitor-camera] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/camera/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:9:21-70
+provider#androidx.startup.InitializationProvider
+ADDED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:24:9-32:20
+MERGED from [androidx.lifecycle:lifecycle-process:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/f811985a0ac83152c70816caa3bfc302/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:24:9-32:20
+MERGED from [androidx.lifecycle:lifecycle-process:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/f811985a0ac83152c70816caa3bfc302/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:24:9-32:20
+MERGED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:24:9-32:20
+MERGED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:24:9-32:20
+MERGED from [androidx.startup:startup-runtime:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/f2f1a6cf69213c36f049038475ace36d/transformed/jetified-startup-runtime-1.1.1/AndroidManifest.xml:26:9-30:34
+MERGED from [androidx.startup:startup-runtime:1.1.1] /home/elismar/.gradle/caches/8.9/transforms/f2f1a6cf69213c36f049038475ace36d/transformed/jetified-startup-runtime-1.1.1/AndroidManifest.xml:26:9-30:34
+	tools:node
+		ADDED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:28:13-31
+	android:authorities
+		ADDED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:26:13-68
+	android:exported
+		ADDED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:27:13-37
+	android:name
+		ADDED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:25:13-67
+meta-data#androidx.emoji2.text.EmojiCompatInitializer
+ADDED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:29:13-31:52
+	android:value
+		ADDED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:31:17-49
+	android:name
+		ADDED from [androidx.emoji2:emoji2:1.3.0] /home/elismar/.gradle/caches/8.9/transforms/3ff4103ff05aa6e996025b09b3618e65/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:30:17-75
+permission#${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:22:5-24:47
+	android:protectionLevel
+		ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:24:9-44
+	android:name
+		ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:23:9-81
+permission#com.pbxmobile.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:22:5-24:47
+	android:protectionLevel
+		ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:24:9-44
+	android:name
+		ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:23:9-81
+uses-permission#${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:26:5-97
+	android:name
+		ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:26:22-94
+uses-permission#com.pbxmobile.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:26:5-97
+	android:name
+		ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:26:22-94
+meta-data#androidx.lifecycle.ProcessLifecycleInitializer
+ADDED from [androidx.lifecycle:lifecycle-process:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/f811985a0ac83152c70816caa3bfc302/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:29:13-31:52
+	android:value
+		ADDED from [androidx.lifecycle:lifecycle-process:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/f811985a0ac83152c70816caa3bfc302/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:31:17-49
+	android:name
+		ADDED from [androidx.lifecycle:lifecycle-process:2.6.2] /home/elismar/.gradle/caches/8.9/transforms/f811985a0ac83152c70816caa3bfc302/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:30:17-78
+meta-data#androidx.profileinstaller.ProfileInstallerInitializer
+ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:29:13-31:52
+	android:value
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:31:17-49
+	android:name
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:30:17-85
+receiver#androidx.profileinstaller.ProfileInstallReceiver
+ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:34:9-52:20
+	android:enabled
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:37:13-35
+	android:exported
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:38:13-36
+	android:permission
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:39:13-57
+	android:directBootAware
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:36:13-44
+	android:name
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:35:13-76
+intent-filter#action:name:androidx.profileinstaller.action.INSTALL_PROFILE
+ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:40:13-42:29
+action#androidx.profileinstaller.action.INSTALL_PROFILE
+ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:41:17-91
+	android:name
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:41:25-88
+intent-filter#action:name:androidx.profileinstaller.action.SKIP_FILE
+ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:43:13-45:29
+action#androidx.profileinstaller.action.SKIP_FILE
+ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:44:17-85
+	android:name
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:44:25-82
+intent-filter#action:name:androidx.profileinstaller.action.SAVE_PROFILE
+ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:46:13-48:29
+action#androidx.profileinstaller.action.SAVE_PROFILE
+ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:47:17-88
+	android:name
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:47:25-85
+intent-filter#action:name:androidx.profileinstaller.action.BENCHMARK_OPERATION
+ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:49:13-51:29
+action#androidx.profileinstaller.action.BENCHMARK_OPERATION
+ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:50:17-95
+	android:name
+		ADDED from [androidx.profileinstaller:profileinstaller:1.3.1] /home/elismar/.gradle/caches/8.9/transforms/6a2c67373cfd8855bb080576cd8c1f3e/transformed/jetified-profileinstaller-1.3.1/AndroidManifest.xml:50:25-92

@@ -4,12 +4,15 @@ const config: CapacitorConfig = {
   appId: 'com.pbxmobile.app',
   appName: 'PBX Mobile',
   webDir: 'dist',
+  startUrl: '/mobile',
   server: {
-    url: 'https://0445d1fd-b452-4867-9317-bdac2d82f30d.lovableproject.com/mobile?forceHideBadge=true',
-    cleartext: true
+    androidScheme: 'http'
   },
   plugins: {
     CapacitorHttp: {
+      enabled: true
+    },
+    PbxMobile: {
       enabled: true
     }
   }

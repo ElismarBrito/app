@@ -1,0 +1,30 @@
+[
+    {
+        "merged": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-debug-32:/xml_config.xml.flat",
+        "source": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-main-34:/xml/config.xml"
+    },
+    {
+        "merged": "com.pbxmobile.app-debug-32:/xml_file_paths.xml.flat",
+        "source": "com.pbxmobile.app-main-34:/xml/file_paths.xml"
+    },
+    {
+        "merged": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-debug-32:/mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-main-34:/mipmap-xxxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-debug-32:/mipmap-hdpi_ic_launcher.png.flat",
+        "source": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-main-34:/mipmap-hdpi/ic_launcher.png"
+    },
+    {
+        "merged": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-debug-32:/mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-main-34:/mipmap-xhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-debug-32:/mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-main-34:/mipmap-xxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-debug-32:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "/home/elismar/.gradle/daemon/8.9/com.pbxmobile.app-main-34:/mipmap-mdpi/ic_launcher.png"
+    }
+]

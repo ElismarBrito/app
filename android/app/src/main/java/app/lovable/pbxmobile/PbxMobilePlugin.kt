@@ -15,6 +15,9 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.getcapacitor.*
 import com.getcapacitor.annotation.CapacitorPlugin
+import androidx.activity.result.ActivityResult
+import com.getcapacitor.annotation.ActivityCallback
+import com.getcapacitor.annotation.PermissionCallback
 
 @CapacitorPlugin(name = "PbxMobile")
 class PbxMobilePlugin : Plugin() {
@@ -52,42 +55,31 @@ class PbxMobilePlugin : Plugin() {
 
     @PluginMethod
     fun requestRoleDialer(call: PluginCall) {
+        Log.d(TAG, "requestRoleDialer called") // Adicionar este log
         Log.d(TAG, "Requesting ROLE_DIALER")
-        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = context.getSystemService(Context.ROLE_SERVICE) as RoleManager
-            
             if (roleManager.isRoleAvailable(RoleManager.ROLE_DIALER)) {
                 if (!roleManager.isRoleHeld(RoleManager.ROLE_DIALER)) {
                     Log.d(TAG, "Requesting ROLE_DIALER from user")
-                    
                     val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER)
-                    
-                    startActivityForResult(call, intent, "roleDialerRequest")
-                    return
+                    startActivityForResult(call, intent, "roleDialerCallback")
                 } else {
                     Log.d(TAG, "ROLE_DIALER already held")
                     call.resolve(JSObject().put("granted", true))
-                    return
                 }
             } else {
                 Log.w(TAG, "ROLE_DIALER not available on this device")
                 call.resolve(JSObject().put("granted", false))
-                return
             }
         } else {
             Log.w(TAG, "ROLE_DIALER requires Android 10+")
             call.resolve(JSObject().put("granted", false))
-            return
         }
-        
-        call.resolve(JSObject().put("granted", false))
     }
-    
+
     @PluginMethod
     fun requestAllPermissions(call: PluginCall) {
-        Log.d(TAG, "Requesting all permissions at once")
-        
         val permissions = arrayOf(
             Manifest.permission.CALL_PHONE,
             Manifest.permission.READ_PHONE_STATE,
@@ -95,12 +87,38 @@ class PbxMobilePlugin : Plugin() {
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.MODIFY_AUDIO_SETTINGS
         )
-        
         if (hasAllPermissions(permissions)) {
-            Log.d(TAG, "All permissions already granted")
             call.resolve(JSObject().put("granted", true))
         } else {
-            requestPermissionForAliases(permissions, call, "allPermissions")
+            requestPermissionForAliases(permissions, call, "allPermissionsCallback")
+        }
+    }
+
+    @ActivityCallback
+    private fun roleDialerCallback(call: PluginCall?, result: ActivityResult) {
+        if (call == null) {
+            return
+        }
+        val granted = result.resultCode == android.app.Activity.RESULT_OK
+        Log.d(TAG, "ROLE_DIALER request result: $granted")
+        call.resolve(JSObject().put("granted", granted))
+    }
+
+    @PermissionCallback
+    private fun allPermissionsCallback(call: PluginCall) {
+        val permissions = arrayOf(
+            Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_PHONE_NUMBERS,
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.MODIFY_AUDIO_SETTINGS
+        )
+        if (hasAllPermissions(permissions)) {
+            Log.d(TAG, "All permissions granted after request.")
+            call.resolve(JSObject().put("granted", true))
+        } else {
+            Log.d(TAG, "Some permissions were denied after request.")
+            call.reject("One or more permissions were denied.")
         }
     }
     
@@ -432,31 +450,6 @@ class PbxMobilePlugin : Plugin() {
         Log.d(TAG, "All listeners removed")
     }
     
-    override fun handleOnPermissionsResult(requestCode: Int, permissions: Array<out String>?, grantResults: IntArray?) {
-        super.handleOnPermissionsResult(requestCode, permissions, grantResults)
-        
-        val call = getSavedCall()
-        if (call != null && requestCode == getLastPermissionRequestCode("allPermissions")) {
-            val allGranted = grantResults?.all { it == PackageManager.PERMISSION_GRANTED } ?: false
-            Log.d(TAG, "All permissions request result: $allGranted")
-            call.resolve(JSObject().put("granted", allGranted))
-        }
-    }
-    
-    override fun handleOnActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.handleOnActivityResult(requestCode, resultCode, data)
-        
-        val call = getSavedCall()
-        if (call != null) {
-            when (getLastActivityResultRequestCode()) {
-                "roleDialerRequest" -> {
-                    val granted = resultCode == android.app.Activity.RESULT_OK
-                    Log.d(TAG, "ROLE_DIALER request result: $granted")
-                    call.resolve(JSObject().put("granted", granted))
-                }
-            }
-        }
-    }
     
     override fun handleOnDestroy() {
         super.handleOnDestroy()

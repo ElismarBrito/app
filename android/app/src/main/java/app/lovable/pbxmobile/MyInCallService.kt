@@ -227,10 +227,6 @@ class MyInCallService : InCallService() {
                 Log.d(TAG, "Post dial wait: $callId, remaining: $remainingPostDialSequence")
             }
             
-            override fun onVideoCallChanged(call: Call, videoCall: Call.VideoCall) {
-                super.onVideoCallChanged(call, videoCall)
-                Log.d(TAG, "Video call changed: $callId")
-            }
         }
     }
 }
