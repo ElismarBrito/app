@@ -1,0 +1,4 @@
+project_id = "jovnndvixqymfvnxkbep"
+
+[functions.pair-device]
+verify_jwt = false

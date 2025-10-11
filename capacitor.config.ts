@@ -1,0 +1,18 @@
+import type { CapacitorConfig } from '@capacitor/cli';
+
+const config: CapacitorConfig = {
+  appId: 'com.pbxmobile.app',
+  appName: 'PBX Mobile',
+  webDir: 'dist',
+  server: {
+    url: 'https://0445d1fd-b452-4867-9317-bdac2d82f30d.lovableproject.com/mobile?forceHideBadge=true',
+    cleartext: true
+  },
+  plugins: {
+    CapacitorHttp: {
+      enabled: true
+    }
+  }
+};
+
+export default config;
