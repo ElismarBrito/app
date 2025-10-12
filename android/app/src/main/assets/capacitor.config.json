@@ -9,6 +9,9 @@
 	"plugins": {
 		"CapacitorHttp": {
 			"enabled": true
+		},
+		"PbxMobile": {
+			"enabled": true
 		}
 	}
 }

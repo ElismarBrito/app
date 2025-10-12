@@ -1,20 +1,20 @@
 -- Merging decision tree log ---
 provider#androidx.core.content.FileProvider
-INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:82:9-90:20
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:88:9-96:20
 	android:grantUriPermissions
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:86:13-47
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:92:13-47
 	android:authorities
 		INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:84:13-64
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:90:13-64
 	android:exported
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:85:13-37
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:91:13-37
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:83:13-62
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:89:13-62
 manifest
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-92:12
-INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-92:12
-INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-92:12
-INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-92:12
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-98:12
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-98:12
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-98:12
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:1-98:12
 MERGED from [:capacitor-camera] /home/elismar/Documentos/Projetos/Mobile/node_modules/@capacitor/camera/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:2:1-13:12
 MERGED from [com.google.android.material:material:1.10.0] /home/elismar/.gradle/caches/8.9/transforms/385e47836df0dfb1ab2f615b667bf9b6/transformed/material-1.10.0/AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] /home/elismar/.gradle/caches/8.9/transforms/d882f7c6d99418c0b721ee4ebb91ddbc/transformed/constraintlayout-2.1.4/AndroidManifest.xml:2:1-11:12
@@ -62,6 +62,7 @@ MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] /home/e
 MERGED from [androidx.print:print:1.0.0] /home/elismar/.gradle/caches/8.9/transforms/fb47237c6bf587b1eed382c98da857ea/transformed/print-1.0.0/AndroidManifest.xml:17:1-22:12
 MERGED from [org.apache.cordova:framework:10.1.1] /home/elismar/.gradle/caches/8.9/transforms/45a6d877808ab53f63a3e321846203bc/transformed/jetified-framework-10.1.1/AndroidManifest.xml:20:1-27:12
 	package
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:3:5-32
 		INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
 	android:versionName
 		INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml
@@ -70,48 +71,48 @@ MERGED from [org.apache.cordova:framework:10.1.1] /home/elismar/.gradle/caches/8
 	xmlns:android
 		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:2:11-69
 uses-permission#android.permission.CALL_PHONE
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:5:5-69
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:6:5-69
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:5:22-66
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:6:22-66
 uses-permission#android.permission.READ_PHONE_STATE
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:6:5-75
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:7:5-75
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:6:22-72
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:7:22-72
 uses-permission#android.permission.READ_PHONE_NUMBERS
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:7:5-77
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:8:5-77
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:7:22-74
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:8:22-74
 uses-permission#android.permission.RECORD_AUDIO
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:8:5-71
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:9:5-71
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:8:22-68
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:9:22-68
 uses-permission#android.permission.MODIFY_AUDIO_SETTINGS
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:9:5-80
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:10:5-80
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:9:22-77
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:10:22-77
 uses-permission#android.permission.WAKE_LOCK
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:10:5-68
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:11:5-68
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:10:22-65
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:11:22-65
 uses-permission#android.permission.INTERNET
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:13:5-67
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:14:5-67
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:13:22-64
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:14:22-64
 uses-permission#android.permission.ACCESS_NETWORK_STATE
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:14:5-79
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:15:5-79
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:14:22-76
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:15:22-76
 uses-permission#android.permission.BIND_TELECOM_CONNECTION_SERVICE
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:17:5-90
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:18:5-90
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:17:22-87
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:18:22-87
 uses-permission#android.permission.BIND_INCALL_SERVICE
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:18:5-78
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:19:5-78
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:18:22-75
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:19:22-75
 application
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:20:5-91:19
-INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:20:5-91:19
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:21:5-97:19
+INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:21:5-97:19
 MERGED from [com.google.android.material:material:1.10.0] /home/elismar/.gradle/caches/8.9/transforms/385e47836df0dfb1ab2f615b667bf9b6/transformed/material-1.10.0/AndroidManifest.xml:22:5-20
 MERGED from [com.google.android.material:material:1.10.0] /home/elismar/.gradle/caches/8.9/transforms/385e47836df0dfb1ab2f615b667bf9b6/transformed/material-1.10.0/AndroidManifest.xml:22:5-20
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] /home/elismar/.gradle/caches/8.9/transforms/d882f7c6d99418c0b721ee4ebb91ddbc/transformed/constraintlayout-2.1.4/AndroidManifest.xml:9:5-20
@@ -133,103 +134,105 @@ MERGED from [androidx.startup:startup-runtime:1.1.1] /home/elismar/.gradle/cache
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.13.1] /home/elismar/.gradle/caches/8.9/transforms/81bb87965ec0b9fd1542a903c0023fc2/transformed/core-1.13.1/AndroidManifest.xml:28:18-86
 	android:label
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:23:9-41
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:24:9-41
 	android:icon
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:22:9-43
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:23:9-43
 	android:allowBackup
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:21:9-35
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:22:9-35
 	android:theme
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:24:9-40
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:25:9-40
 activity#com.pbxmobile.app.MainActivity
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:27:9-58:20
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:28:9-64:20
 	android:launchMode
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:30:13-44
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:31:13-44
 	android:exported
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:29:13-36
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:30:13-36
 	android:theme
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:31:13-62
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:32:13-62
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:28:13-41
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:29:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:33:13-36:29
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:34:13-37:29
 action#android.intent.action.MAIN
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:34:17-69
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:35:17-69
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:34:25-66
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:35:25-66
 category#android.intent.category.LAUNCHER
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:35:17-77
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:36:17-77
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:35:27-74
-intent-filter#action:name:android.intent.action.DIAL+category:name:android.intent.category.DEFAULT+data:scheme:tel
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:39:13-43:29
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:36:27-74
+intent-filter#action:name:android.intent.action.DIAL+category:name:android.intent.category.DEFAULT
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:40:13-43:29
 action#android.intent.action.DIAL
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:40:17-69
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:41:17-69
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:40:25-66
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:41:25-66
 category#android.intent.category.DEFAULT
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:41:17-76
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:42:17-76
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:41:27-73
-data
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:42:17-46
-	android:scheme
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:42:23-43
-intent-filter#action:name:android.intent.action.CALL+category:name:android.intent.category.DEFAULT+data:scheme:tel
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:42:27-73
+intent-filter#action:name:android.intent.action.DIAL+category:name:android.intent.category.DEFAULT+data:scheme:tel
 ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:45:13-49:29
+data
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:48:17-46
+	android:scheme
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:48:23-43
+intent-filter#action:name:android.intent.action.CALL+category:name:android.intent.category.DEFAULT+data:scheme:tel
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:51:13-55:29
 action#android.intent.action.CALL
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:46:17-69
-	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:46:25-66
-intent-filter#action:name:android.intent.action.VIEW+category:name:android.intent.category.BROWSABLE+category:name:android.intent.category.DEFAULT+data:scheme:tel
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:51:13-56:29
-action#android.intent.action.VIEW
 ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:52:17-69
 	android:name
 		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:52:25-66
+intent-filter#action:name:android.intent.action.VIEW+category:name:android.intent.category.BROWSABLE+category:name:android.intent.category.DEFAULT+data:scheme:tel
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:57:13-62:29
+action#android.intent.action.VIEW
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:58:17-69
+	android:name
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:58:25-66
 category#android.intent.category.BROWSABLE
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:53:17-78
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:59:17-78
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:53:27-75
-service#app.lovable.pbxmobile.MyConnectionService
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:61:9-68:19
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:59:27-75
+service#com.pbxmobile.app.MyConnectionService
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:67:9-74:19
 	android:exported
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:64:13-36
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:70:13-36
 	android:permission
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:63:13-84
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:69:13-84
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:62:13-69
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:68:13-48
 intent-filter#action:name:android.telecom.ConnectionService
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:65:13-67:29
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:71:13-73:29
 action#android.telecom.ConnectionService
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:66:17-76
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:72:17-76
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:66:25-73
-service#app.lovable.pbxmobile.MyInCallService
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:71:9-80:19
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:72:25-73
+service#com.pbxmobile.app.MyInCallService
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:77:9-86:19
 	android:exported
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:74:13-36
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:80:13-36
 	android:permission
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:73:13-72
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:79:13-72
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:72:13-65
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:78:13-44
 intent-filter#action:name:android.telecom.InCallService
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:75:13-77:29
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:81:13-83:29
 action#android.telecom.InCallService
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:76:17-72
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:82:17-72
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:76:25-69
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:82:25-69
 meta-data#android.telecom.IN_CALL_SERVICE_UI
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:78:13-79:47
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:84:13-85:47
 	android:value
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:79:24-44
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:85:24-44
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:78:24-73
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:84:24-73
 meta-data#android.support.FILE_PROVIDER_PATHS
-ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:87:13-89:64
+ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:93:13-95:64
 	android:resource
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:89:17-51
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:95:17-51
 	android:name
-		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:88:17-67
+		ADDED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml:94:17-67
 uses-sdk
 INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from /home/elismar/Documentos/Projetos/Mobile/android/app/src/main/AndroidManifest.xml

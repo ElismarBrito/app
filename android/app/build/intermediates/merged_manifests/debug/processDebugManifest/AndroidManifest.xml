@@ -62,6 +62,11 @@
                 <action android:name="android.intent.action.DIAL" />
 
                 <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL" />
+
+                <category android:name="android.intent.category.DEFAULT" />
 
                 <data android:scheme="tel" />
             </intent-filter>
@@ -84,7 +89,7 @@
 
         <!-- Connection Service -->
         <service
-            android:name="app.lovable.pbxmobile.MyConnectionService"
+            android:name="com.pbxmobile.app.MyConnectionService"
             android:exported="true"
             android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE" >
             <intent-filter>
@@ -94,7 +99,7 @@
 
         <!-- InCall Service -->
         <service
-            android:name="app.lovable.pbxmobile.MyInCallService"
+            android:name="com.pbxmobile.app.MyInCallService"
             android:exported="true"
             android:permission="android.permission.BIND_INCALL_SERVICE" >
             <intent-filter>

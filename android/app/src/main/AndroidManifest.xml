@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.pbxmobile.app">
     
     <!-- Phone permissions -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
@@ -39,6 +40,11 @@
             <intent-filter>
                 <action android:name="android.intent.action.DIAL" />
                 <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="tel" />
             </intent-filter>
             
@@ -59,7 +65,7 @@
         
         <!-- Connection Service -->
         <service
-            android:name="app.lovable.pbxmobile.MyConnectionService"
+            android:name=".MyConnectionService"
             android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
             android:exported="true">
             <intent-filter>
@@ -69,7 +75,7 @@
 
         <!-- InCall Service -->
         <service
-            android:name="app.lovable.pbxmobile.MyInCallService"
+            android:name=".MyInCallService"
             android:permission="android.permission.BIND_INCALL_SERVICE"
             android:exported="true">
             <intent-filter>
