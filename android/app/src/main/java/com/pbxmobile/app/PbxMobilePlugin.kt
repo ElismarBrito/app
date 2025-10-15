@@ -24,6 +24,7 @@ class PbxMobilePlugin : Plugin() {
     private val TAG = "PbxMobilePlugin"
     private lateinit var automatedCallingManager: AutomatedCallingManager
     private lateinit var simPhoneAccountManager: SimPhoneAccountManager
+    private val callStateListeners = java.util.concurrent.ConcurrentHashMap<String, (String) -> Unit>()
     
     override fun load() {
         super.load()
@@ -37,6 +38,14 @@ class PbxMobilePlugin : Plugin() {
         simPhoneAccountManager = SimPhoneAccountManager(context)
         
         Log.d(TAG, "PbxMobile plugin initialization complete")
+    }
+
+    fun addCallStateListener(callId: String, listener: (String) -> Unit) {
+        callStateListeners[callId] = listener
+    }
+
+    fun removeCallStateListener(callId: String) {
+        callStateListeners.remove(callId)
     }
     
     /**

@@ -140,34 +140,8 @@ class MyConnectionService : ConnectionService() {
             // Start connection sequence
             if (isOutgoing) {
                 setDialing()
-                
-                // Simulate dialing process for automated calls
-                if (isAutomated) {
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        simulateCallProgression()
-                    }, 1000)
-                }
             } else {
                 setRinging()
-            }
-        }
-        
-        private fun simulateCallProgression() {
-            // Simulate call states for automated calling
-            android.os.Handler(android.os.Looper.getMainLooper()).apply {
-                postDelayed({
-                    setActive()
-                    ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, "ACTIVE", number)
-                    Log.d(TAG, "Call $callId became active")
-                }, 2000)
-                
-                postDelayed({
-                    setDisconnected(DisconnectCause(DisconnectCause.REMOTE))
-                    destroy()
-                    activeConnections.remove(callId)
-                    ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, "DISCONNECTED", number)
-                    Log.d(TAG, "Call $callId disconnected")
-                }, 8000) // End call after 8 seconds total
             }
         }
         
