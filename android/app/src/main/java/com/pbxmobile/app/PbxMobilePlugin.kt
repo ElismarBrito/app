@@ -319,11 +319,7 @@ class PbxMobilePlugin : Plugin() {
             val phoneAccountHandle = PhoneAccountHandle(componentName, "PbxMobileAccount")
             
             val phoneAccount = PhoneAccount.builder(phoneAccountHandle, accountLabel)
-                .setCapabilities(
-                    PhoneAccount.CAPABILITY_CALL_PROVIDER or
-                    PhoneAccount.CAPABILITY_CONNECTION_MANAGER or
-                    PhoneAccount.CAPABILITY_SELF_MANAGED
-                )
+                .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
                 .setHighlightColor(0xFF4CAF50.toInt())
                 .build()
             

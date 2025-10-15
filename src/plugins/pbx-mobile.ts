@@ -78,6 +78,22 @@ export interface PbxMobilePlugin {
   ): Promise<PluginListenerHandle>;
 
   /**
+   * Add listener for generic call events
+   */
+  addListener(
+    eventName: 'callEvent',
+    listenerFunc: (event: any) => void, // Use 'any' for now, can be typed later
+  ): Promise<PluginListenerHandle>;
+
+  /**
+   * Add listener for active calls list changes
+   */
+  addListener(
+    eventName: 'activeCallsChanged',
+    listenerFunc: (event: { calls: CallInfo[] }) => void,
+  ): Promise<PluginListenerHandle>;
+
+  /**
    * Remove all listeners
    */
   removeAllListeners(): Promise<void>;
