@@ -356,13 +356,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         callMapRef.current.delete(callId);
       }
       
-      updateActiveCalls();
-      
       toast({
         title: "Chamada encerrada",
       });
     } catch (error) {
       console.error('Error ending call:', error);
+    } finally {
+      // Always update the call list to reflect the real state
+      updateActiveCalls();
     }
   };
 
