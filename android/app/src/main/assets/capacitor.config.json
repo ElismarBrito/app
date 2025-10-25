@@ -1,0 +1,17 @@
+{
+	"appId": "com.pbxmobile.app",
+	"appName": "PBX Mobile",
+	"webDir": "dist",
+	"startUrl": "/mobile",
+	"server": {
+		"androidScheme": "http"
+	},
+	"plugins": {
+		"CapacitorHttp": {
+			"enabled": true
+		},
+		"PbxMobile": {
+			"enabled": true
+		}
+	}
+}

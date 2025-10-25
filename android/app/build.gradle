@@ -1,0 +1,48 @@
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace "com.pbxmobile.app" // Peguei do UPGRADE_NOTES.md
+    compileSdk 35 // Peguei do build.gradle do plugin
+
+    defaultConfig {
+        applicationId "com.pbxmobile.app" // Peguei do UPGRADE_NOTES.md
+        minSdkVersion 23 // Peguei do build.gradle do plugin
+        targetSdkVersion 35 // Peguei do build.gradle do plugin
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    // Incluir configurações específicas do Capacitor
+    apply from: 'capacitor.build.gradle'
+}
+
+dependencies {
+    implementation "androidx.appcompat:appcompat:1.7.0" // Versão do plugin
+    implementation "androidx.core:core-ktx:1.13.1" // Versão comum
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
+
+    // Dependências do Capacitor
+    implementation project(':capacitor-android')
+    implementation project(':capacitor-camera')
+}

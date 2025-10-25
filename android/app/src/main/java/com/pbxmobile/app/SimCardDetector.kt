@@ -1,4 +1,4 @@
-package app.lovable.pbxmobile
+package com.pbxmobile.app
 
 import android.Manifest
 import android.content.Context

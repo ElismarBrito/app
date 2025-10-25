@@ -138,6 +138,16 @@ const PBXDashboard = () => {
   };
 
   const handleDeviceAction = async (deviceId: string, action: string) => {
+    // Handle bulk action
+    if (deviceId === 'all' && action === 'refresh') {
+      toast({ title: "Atualizando todos os dispositivos..." });
+      for (const device of devices) {
+        await updateDeviceStatus(device.id, { status: 'online', last_seen: new Date().toISOString() });
+      }
+      toast({ title: "Dispositivos atualizados" });
+      return;
+    }
+
     switch (action) {
       case 'refresh':
         await updateDeviceStatus(deviceId, { status: 'online', last_seen: new Date().toISOString() });
@@ -346,7 +356,7 @@ const PBXDashboard = () => {
           // Create calls for each number in the list (sem device_id)
           for (const number of list.numbers) {
             try {
-              await addCall(number);
+              await addCall(`${ddiToUse}${number}`);
             } catch (error) {
               console.error('Error creating call:', error);
             }

@@ -1,4 +1,4 @@
-package app.lovable.pbxmobile
+package com.pbxmobile.app
 
 import android.content.Context
 import android.content.Intent
@@ -72,7 +72,7 @@ class AutomatedCallingManager(private val context: Context, private val plugin: 
             Log.e(TAG, "Error in automated calling session $sessionId", e)
             plugin.notifyCallEvent("session_error", mapOf(
                 "sessionId" to sessionId,
-                "error" to e.message
+                "error" to (e.message ?: "Unknown error")
             ))
         } finally {
             activeSessions.remove(sessionId)

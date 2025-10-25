@@ -1,4 +1,4 @@
-package app.lovable.pbxmobile
+package com.pbxmobile.app
 
 /**
  * Data class representing SIM card information.
