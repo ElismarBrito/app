@@ -17,9 +17,9 @@ import { useCallAssignments } from '@/hooks/useCallAssignments';
 import { CorporateDialer } from '@/components/CorporateDialer';
 import { SimSelector } from '@/components/SimSelector';
 import { CallHistoryManager } from '@/components/CallHistoryManager';
-import { Smartphone, Wifi, WifiOff, Phone, PhoneOff, Settings, Play, Square, CreditCard } from 'lucide-react';
+import { Smartphone, Wifi, WifiOff, Phone, PhoneOff, Settings, Play, Square, CreditCard, Pause, SkipForward } from 'lucide-react';
 import PbxMobile from '@/plugins/pbx-mobile';
-import type { CallInfo, SimCardInfo } from '@/plugins/pbx-mobile';
+import type { CallInfo, SimCardInfo, CampaignProgress, CampaignSummary, PluginListenerHandle } from '@/plugins/pbx-mobile';
 
 interface MobileAppProps {
   isStandalone?: boolean;
@@ -42,7 +42,6 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   const [hasDialerRole, setHasDialerRole] = useState(false);
   const [hasAllPermissions, setHasAllPermissions] = useState(false);
   const [activeCalls, setActiveCalls] = useState<CallInfo[]>([]);
-  const [automatedSessions, setAutomatedSessions] = useState<string[]>([]);
   const [selectedSimId, setSelectedSimId] = useState<string>(simCards[0]?.id || 'default-sim');
   const [pendingCall, setPendingCall] = useState<string | null>(null);
   const [deviceStatus, setDeviceStatus] = useState({
@@ -50,12 +49,10 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     signal_status: 'good',
     line_blocked: false
   });
-  const [campaignStatus, setCampaignStatus] = useState({
-    isActive: false,
-    currentNumber: undefined,
-    totalNumbers: 0,
-    completedCalls: 0
-  });
+
+  // New states for Power Dialer
+  const [campaignProgress, setCampaignProgress] = useState<CampaignProgress | null>(null);
+  const [campaignSummary, setCampaignSummary] = useState<CampaignSummary | null>(null);
 
   // Map to track native call IDs to database call IDs
   const callMapRef = useRef<Map<string, string>>(new Map());
@@ -119,49 +116,52 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     }
   }, [deviceId]);
 
+  // Setup all event listeners on component mount
   useEffect(() => {
-    // Request all permissions on startup
-    requestAllPermissions();
-    checkDialerRole();
-    
-    // Setup call state listeners
-    PbxMobile.addListener('callStateChanged', async (event) => {
-      console.log('Call state changed:', event);
-      
-      // When call ends, remove from active and process queue
-      if (event.state === 'disconnected') {
-        removeFromActive(event.callId);
-      }
-      
-      // Update database with call state
-      const dbCallId = callMapRef.current.get(event.callId);
-      if (dbCallId && user) {
-        const statusMap: Record<string, string> = {
-          'dialing': 'ringing',
-          'ringing': 'ringing',
-          'active': 'answered',
-          'disconnected': 'ended'
-        };
-        
-        const newStatus = statusMap[event.state] || event.state;
-        
-        await supabase
-          .from('calls')
-          .update({ status: newStatus })
-          .eq('id', dbCallId);
-        
-        // Remove from map if call ended
-        if (newStatus === 'ended') {
-          callMapRef.current.delete(event.callId);
-        }
-      }
-      
+    const handles: PluginListenerHandle[] = [];
+    const setupListeners = async () => {
+      console.log("Setting up native event listeners...");
+      handles.push(await PbxMobile.addListener('callStateChanged', async (event) => {
+        console.log('Event: callStateChanged', event);
+        if (event.state === 'disconnected') removeFromActive(event.callId);
+        updateActiveCalls();
+      }));
+
+      handles.push(await PbxMobile.addListener('activeCallsChanged', (event) => {
+        console.log('Event: activeCallsChanged', event.calls);
+        setActiveCalls(event.calls);
+      }));
+
+      handles.push(await PbxMobile.addListener('dialerCampaignProgress', (progress) => {
+        console.log('Event: dialerCampaignProgress', progress);
+        setCampaignProgress(progress as CampaignProgress);
+      }));
+
+      handles.push(await PbxMobile.addListener('dialerCampaignCompleted', (summary) => {
+        console.log('Event: dialerCampaignCompleted', summary);
+        setCampaignSummary(summary as CampaignSummary);
+        setCampaignProgress(null); // Reset progress
+        toast({ title: "Campanha Finalizada", description: `Foram realizadas ${summary.totalAttempts} tentativas.` });
+      }));
+      console.log("Native event listeners set up.");
+      // Sync state immediately after setup to avoid race conditions
       updateActiveCalls();
-    });
+    };
+
+    setupListeners();
 
     return () => {
-      PbxMobile.removeAllListeners();
+      console.log("Cleaning up native event listeners...");
+      handles.forEach(handle => handle.remove());
     };
+  }, []); // Empty dependency array ensures this runs only once on mount
+
+  // Handle user-dependent actions
+  useEffect(() => {
+    if (user) {
+      requestAllPermissions();
+      checkDialerRole();
+    }
   }, [user]);
 
   useEffect(() => {
@@ -265,51 +265,6 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       setActiveCalls(result.calls);
     } catch (error) {
       console.log('Error getting active calls:', error);
-    }
-  };
-
-  const startAutomatedCalls = async (numbers: string[], listId: string) => {
-    if (!hasDialerRole) {
-      toast({
-        title: "Permissão necessária",
-        description: "Configure o app como discador padrão primeiro",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    try {
-      // Add all numbers to queue with list ID
-      const queuedCalls = numbers.map(number => ({ number, listId }));
-      addToQueue(queuedCalls);
-      
-      toast({
-        title: "Chamadas adicionadas à fila",
-        description: `${numbers.length} números adicionados. Sistema manterá 6 chamadas ativas simultaneamente.`,
-        variant: "default"
-      });
-    } catch (error) {
-      console.error('Error starting automated calls:', error);
-      toast({
-        title: "Erro",
-        description: "Falha ao iniciar chamadas automáticas",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const stopAutomatedCalls = async (sessionId: string) => {
-    try {
-      await PbxMobile.stopAutomatedCalling({ sessionId });
-      setAutomatedSessions(prev => prev.filter(id => id !== sessionId));
-      
-      toast({
-        title: "Chamadas interrompidas",
-        description: "Sessão de chamadas automáticas finalizada",
-        variant: "default"
-      });
-    } catch (error) {
-      console.error('Error stopping automated calls:', error);
     }
   };
 
@@ -615,55 +570,28 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         });
         break;
         
-        case 'start_campaign':
-          console.log('Processando comando start_campaign:', command.data);
-          // Handle campaign start
-          if (command.data.list && command.data.list.numbers) {
-            console.log(`Iniciando campanha com ${command.data.list.numbers.length} números`);
-            
-            // Update campaign status
-            setCampaignStatus({
-              isActive: true,
-              totalNumbers: command.data.list.numbers.length,
-              completedCalls: 0,
-              currentNumber: command.data.list.numbers[0]
+      case 'start_campaign':
+        console.log('Processando comando start_campaign:', command.data);
+        if (command.data.list && command.data.list.numbers) {
+          try {
+            await PbxMobile.startCampaign({
+              numbers: command.data.list.numbers,
+              deviceId: deviceId!,
+              listId: command.data.listId,
+              listName: command.data.listName,
+              simId: selectedSimId
             });
-            
-            toast({
-              title: "Campanha iniciada",
-              description: `Iniciando chamadas para ${command.data.list.numbers.length} números`,
-              variant: "default"
-            });
-                          // Start automated calling
-                        try {
-                          const result = await PbxMobile.startAutomatedCalling({
-                            numbers: command.data.list.numbers,
-                            deviceId: deviceId,
-                            listId: command.data.listId,
-                            simId: selectedSimId
-                          });
-                          
-                          // Add to automated sessions to trigger UI change              setAutomatedSessions(prev => [...prev, result.sessionId]);
-              
-              console.log('Campanha iniciada com sucesso, sessionId:', result.sessionId);
-            } catch (error) {
-              console.error('Error starting campaign:', error);
-              setCampaignStatus(prev => ({ ...prev, isActive: false }));
-              toast({
-                title: "Erro na Campanha",
-                description: "Não foi possível iniciar a campanha",
-                variant: "destructive"
-              });
-            }
-          } else {
-            console.error('Dados de campanha inválidos:', command.data);
-            toast({
-              title: "Erro na Campanha",
-              description: "Dados da lista de números são inválidos",
-              variant: "destructive"
-            });
+            setCampaignSummary(null); // Clear previous summary
+            toast({ title: "Campanha Iniciada", description: `Iniciando chamadas para ${command.data.list.numbers.length} números.` });
+          } catch (error) {
+            console.error('Error starting campaign:', error);
+            toast({ title: "Erro na Campanha", description: "Não foi possível iniciar a campanha", variant: "destructive" });
           }
-          break;
+        } else {
+          console.error('Dados de campanha inválidos:', command.data);
+          toast({ title: "Erro na Campanha", description: "Dados da lista de números são inválidos", variant: "destructive" });
+        }
+        break;
         
       case 'end_call':
         console.log('Processando comando end_call:', command.data);
@@ -740,11 +668,17 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     });
   };
 
+  const campaignStatusForDialer = campaignProgress ? {
+    isActive: campaignProgress.progressPercentage < 100 && campaignProgress.activeCallsCount > 0,
+    completedCalls: campaignProgress.completedNumbers,
+    totalNumbers: campaignProgress.totalNumbers,
+  } : undefined;
+
   if (isStandalone) {
     // Show Corporate Dialer when paired and configured, OR when there are active calls/campaigns/pending calls
     const shouldShowDialer = (isPaired && isConfigured && hasDialerRole) || 
                             activeCalls.length > 0 || 
-                            automatedSessions.length > 0 || 
+                            campaignProgress !== null || 
                             pendingCall !== null;
     
     if (shouldShowDialer) {
@@ -762,7 +696,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           onEndCall={endCall}
           onMergeActiveCalls={mergeActiveCalls}
           deviceModel={deviceInfo.model}
-          campaignStatus={campaignStatus}
+          campaignStatus={campaignStatusForDialer}
         />
       );
     }
@@ -1030,34 +964,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             <CallHistoryManager deviceId={deviceId} />
           )}
 
-          {/* Automated Sessions */}
-          {automatedSessions.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Play className="h-5 w-5" />
-                  Chamadas Automáticas Ativas
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {automatedSessions.map((sessionId) => (
-                  <div key={sessionId} className="flex items-center justify-between p-2 border rounded">
-                    <div>
-                      <p className="font-medium">Sessão Ativa</p>
-                      <p className="text-xs text-muted-foreground">{sessionId.slice(0, 12)}...</p>
-                    </div>
-                    <Button 
-                      size="sm" 
-                      variant="destructive" 
-                      onClick={() => stopAutomatedCalls(sessionId)}
-                    >
-                      <Square className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+          {/* Automated Sessions (Old) - This will be replaced by CampaignProgressCard */}
 
           {/* Pending Call Request */}
           {pendingCall && (
@@ -1090,7 +997,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             </Card>
           )}
 
-          {isConnected && !pendingCall && (
+          {isConnected && !pendingCall && !campaignProgress && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

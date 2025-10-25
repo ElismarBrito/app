@@ -205,7 +205,7 @@ export const CorporateDialer = ({
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
                   placeholder="Digite o número"
-                  className="text-center text-lg h-12 bg-transparent border-muted-foreground/20"
+                  className="text-center text-lg h-12 bg-transparent border-muted-foreground/20 text-gray-900"
                   type="tel"
                 />
                 {phoneNumber && (
@@ -274,7 +274,7 @@ export const CorporateDialer = ({
 
 
         {/* Footer com informações do dispositivo */}
-        <div className="text-center text-white/60 text-xs space-y-1">
+        <div className="text-center text-white/80 text-xs space-y-1 [text-shadow:0_1px_2px_rgba(0,0,0,0.6)]">
           <p>{deviceModel}</p>
           <p>Aguardando comandos do dashboard...</p>
         </div>

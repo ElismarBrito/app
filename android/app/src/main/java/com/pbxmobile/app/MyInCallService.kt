@@ -161,11 +161,11 @@ class MyInCallService : InCallService() {
     }
     
     private fun extractCallId(call: Call): String {
-        // Try to get call ID from extras first
+        // Try to get call ID from extras first. This MUST match the key used in PowerDialerManager.
         val extras = call.details?.extras
-        val callId = extras?.getString("CALL_ID")
+        val callId = extras?.getString("callId") // Corrected key
         
-        return callId ?: "call_${call.hashCode()}"
+        return callId ?: "call_${call.hashCode()}" // Fallback for non-campaign calls
     }
     
     private fun mapCallState(state: Int): String {
@@ -205,10 +205,19 @@ class MyInCallService : InCallService() {
             override fun onStateChanged(call: Call, state: Int) {
                 super.onStateChanged(call, state)
                 
-                val stateString = mapCallState(state)
-                Log.d(TAG, "Call state changed: $callId -> $stateString")
-                
-                ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, stateString, phoneNumber)
+                // Get the PowerDialerManager instance
+                val powerDialerManager = ServiceRegistry.getPlugin()?.powerDialerManager
+
+                if (powerDialerManager != null) {
+                    // Feed the state change into the Power Dialer engine
+                    powerDialerManager.updateCallState(callId, call, state)
+                } else {
+                    // Fallback to old notification if manager is not available
+                    val stateString = mapCallState(state)
+                    Log.w(TAG, "PowerDialerManager not found, using fallback notification.")
+                    ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, stateString, phoneNumber)
+                }
+
                 updateActiveCallsList()
             }
             

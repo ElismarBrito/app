@@ -1,104 +1,27 @@
 import { registerPlugin, PluginListenerHandle } from '@capacitor/core';
 
-export interface PbxMobilePlugin {
-  /**
-   * Request all required permissions at once
-   */
-  requestAllPermissions(): Promise<{ granted: boolean }>;
+// ==================== ENUMS E TIPOS ====================
 
-  /**
-   * Get available SIM cards from device
-   */
-  getSimCards(): Promise<{ simCards: SimCardInfo[] }>;
-
-  /**
-   * Request ROLE_DIALER permission from user
-   */
-  requestRoleDialer(): Promise<{ granted: boolean }>;
-
-  /**
-   * Check if app has ROLE_DIALER permission
-   */
-  hasRoleDialer(): Promise<{ hasRole: boolean }>;
-
-  /**
-   * Start a phone call
-   */
-  startCall(options: { number: string; simId?: string }): Promise<{ callId: string }>;
-
-  /**
-   * End a specific call
-   */
-  endCall(options: { callId: string }): Promise<void>;
-
-  /**
-   * Merge active calls into conference
-   */
-  mergeActiveCalls(): Promise<{ conferenceId: string }>;
-
-  /**
-   * Get list of active calls
-   */
-  getActiveCalls(): Promise<{ calls: CallInfo[] }>;
-
-  /**
-   * Register phone account for this app
-   */
-  registerPhoneAccount(options: { accountLabel: string }): Promise<void>;
-
-  /**
-   * Start automated calling for a number list
-   */
-  startAutomatedCalling(options: { 
-    numbers: string[], 
-    deviceId: string,
-    listId: string,
-    simId?: string
-  }): Promise<{ sessionId: string }>;
-
-  /**
-   * Stop automated calling session
-   */
-  stopAutomatedCalling(options: { sessionId: string }): Promise<void>;
-
-  /**
-   * Add listener for call state changes
-   */
-  addListener(
-    eventName: 'callStateChanged',
-    listenerFunc: (event: CallStateEvent) => void,
-  ): Promise<PluginListenerHandle>;
-
-  /**
-   * Add listener for conference events
-   */
-  addListener(
-    eventName: 'conferenceEvent',
-    listenerFunc: (event: ConferenceEvent) => void,
-  ): Promise<PluginListenerHandle>;
-
-  /**
-   * Add listener for generic call events
-   */
-  addListener(
-    eventName: 'callEvent',
-    listenerFunc: (event: any) => void, // Use 'any' for now, can be typed later
-  ): Promise<PluginListenerHandle>;
-
-  /**
-   * Add listener for active calls list changes
-   */
-  addListener(
-    eventName: 'activeCallsChanged',
-    listenerFunc: (event: { calls: CallInfo[] }) => void,
-  ): Promise<PluginListenerHandle>;
-
-  /**
-   * Remove all listeners
-   */
-  removeAllListeners(): Promise<void>;
+/**
+ * Representa o estado de uma chamada individual dentro do Power Dialer.
+ * Mapeado do PowerDialerManager.CallState no Kotlin.
+ */
+export enum DialerCallState {
+  DIALING = 'dialing',
+  RINGING = 'ringing',
+  ACTIVE = 'active',
+  HOLDING = 'holding',
+  DISCONNECTED = 'disconnected',
+  FAILED = 'failed',
+  BUSY = 'busy',
+  NO_ANSWER = 'no_answer',
+  REJECTED = 'rejected',
+  UNREACHABLE = 'unreachable',
 }
 
+/**
+ * Informações básicas sobre uma chamada ativa gerenciada pelo Telecom Framework.
+ */
 export interface CallInfo {
   callId: string;
   number: string;
@@ -107,18 +30,9 @@ export interface CallInfo {
   startTime?: number;
 }
 
-export interface CallStateEvent {
-  callId: string;
-  state: string;
-  number: string;
-}
-
-export interface ConferenceEvent {
-  conferenceId: string;
-  event: 'created' | 'destroyed' | 'participantAdded' | 'participantRemoved';
-  participants: string[];
-}
-
+/**
+ * Informações sobre um SIM card disponível no dispositivo.
+ */
 export interface SimCardInfo {
   id: string;
   slotIndex: number;
@@ -130,6 +44,142 @@ export interface SimCardInfo {
   type: 'physical' | 'esim';
   subscriptionId?: number;
 }
+
+/**
+ * Resultado detalhado de uma única tentativa de chamada dentro de uma campanha.
+ * Mapeado de PowerDialerManager.CallResult.
+ */
+export interface CallResult {
+  number: string;
+  callId: string;
+  attemptNumber: number;
+  state: DialerCallState;
+  startTime: number;
+  endTime: number;
+  duration: number;
+  disconnectCause?: string;
+  willRetry: boolean;
+}
+
+/**
+ * Progresso em tempo real de uma campanha de discagem.
+ * Mapeado de PowerDialerManager.CampaignProgress.
+ */
+export interface CampaignProgress {
+  sessionId: string;
+  totalNumbers: number;
+  completedNumbers: number;
+  activeCallsCount: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingNumbers: number;
+  progressPercentage: number;
+}
+
+/**
+ * Sumário final com os resultados consolidados de uma campanha.
+ * Mapeado de PowerDialerManager.CampaignSummary.
+ */
+export interface CampaignSummary {
+  sessionId: string;
+  totalNumbers: number;
+  totalAttempts: number;
+  successfulCalls: number;
+  failedCalls: number;
+  notAnswered: number;
+  busy: number;
+  unreachable: number;
+  duration: number;
+  results: CallResult[];
+}
+
+// ==================== EVENTOS ====================
+
+/**
+ * Evento disparado para mudanças de estado em chamadas normais (não-campanha).
+ */
+export interface CallStateEvent {
+  callId: string;
+  state: string;
+  number: string;
+}
+
+/**
+ * Evento para conferências.
+ */
+export interface ConferenceEvent {
+  conferenceId: string;
+  event: 'created' | 'destroyed' | 'participantAdded' | 'participantRemoved';
+  participants: string[];
+}
+
+// ==================== INTERFACE DO PLUGIN ====================
+
+export interface PbxMobilePlugin {
+  // --- Gerenciamento Básico ---
+  requestAllPermissions(): Promise<{ granted: boolean }>;
+  getSimCards(): Promise<{ simCards: SimCardInfo[] }>;
+  
+  // --- Funções de Discador (ROLE_DIALER) ---
+  requestRoleDialer(): Promise<{ granted: boolean }>;
+  hasRoleDialer(): Promise<{ hasRole: boolean }>;
+  registerPhoneAccount(options: { accountLabel: string }): Promise<void>;
+
+  // --- Controle de Chamada Manual ---
+  startCall(options: { number: string; simId?: string }): Promise<{ callId: string }>;
+  endCall(options: { callId: string }): Promise<void>;
+  mergeActiveCalls(): Promise<{ conferenceId: string }>;
+  getActiveCalls(): Promise<{ calls: CallInfo[] }>;
+
+  // --- Power Dialer (Motor de Campanha) ---
+  startCampaign(options: {
+    numbers: string[];
+    deviceId: string;
+    listId: string;
+    listName: string;
+    simId?: string;
+  }): Promise<{ sessionId: string }>;
+  
+  pauseCampaign(): Promise<void>;
+  resumeCampaign(): Promise<void>;
+  stopCampaign(): Promise<void>;
+
+  // --- Listeners de Eventos ---
+  addListener(
+    eventName: 'callStateChanged',
+    listenerFunc: (event: CallStateEvent) => void,
+  ): Promise<PluginListenerHandle>;
+
+  addListener(
+    eventName: 'conferenceEvent',
+    listenerFunc: (event: ConferenceEvent) => void,
+  ): Promise<PluginListenerHandle>;
+  
+  addListener(
+    eventName: 'activeCallsChanged',
+    listenerFunc: (event: { calls: CallInfo[] }) => void,
+  ): Promise<PluginListenerHandle>;
+
+  // --- Listeners do Power Dialer ---
+  addListener(
+    eventName: 'dialerCampaignProgress',
+    listenerFunc: (progress: CampaignProgress) => void,
+  ): Promise<PluginListenerHandle>;
+
+  addListener(
+    eventName: 'dialerCampaignCompleted',
+    listenerFunc: (summary: CampaignSummary) => void,
+  ): Promise<PluginListenerHandle>;
+
+  addListener(
+    eventName: 'dialerCallStateChanged',
+    listenerFunc: (result: CallResult) => void,
+  ): Promise<PluginListenerHandle>;
+
+  removeAllListeners(): Promise<void>;
+}
+
+// ==================== REGISTRO DO PLUGIN ====================
 
 const PbxMobile = registerPlugin<PbxMobilePlugin>('PbxMobile', {
   web: () => import('./web').then(m => new m.PbxMobileWeb()),
