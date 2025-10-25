@@ -1,5 +1,7 @@
 import { registerPlugin, PluginListenerHandle } from '@capacitor/core';
 
+export type { PluginListenerHandle };
+
 // ==================== ENUMS E TIPOS ====================
 
 /**

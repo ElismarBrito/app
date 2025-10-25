@@ -118,41 +118,42 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
   // Setup all event listeners on component mount
   useEffect(() => {
-    const handles: PluginListenerHandle[] = [];
-    const setupListeners = async () => {
+    const setup = async () => {
       console.log("Setting up native event listeners...");
-      handles.push(await PbxMobile.addListener('callStateChanged', async (event) => {
-        console.log('Event: callStateChanged', event);
-        if (event.state === 'disconnected') removeFromActive(event.callId);
-        updateActiveCalls();
-      }));
-
-      handles.push(await PbxMobile.addListener('activeCallsChanged', (event) => {
-        console.log('Event: activeCallsChanged', event.calls);
-        setActiveCalls(event.calls);
-      }));
-
-      handles.push(await PbxMobile.addListener('dialerCampaignProgress', (progress) => {
-        console.log('Event: dialerCampaignProgress', progress);
-        setCampaignProgress(progress as CampaignProgress);
-      }));
-
-      handles.push(await PbxMobile.addListener('dialerCampaignCompleted', (summary) => {
-        console.log('Event: dialerCampaignCompleted', summary);
-        setCampaignSummary(summary as CampaignSummary);
-        setCampaignProgress(null); // Reset progress
-        toast({ title: "Campanha Finalizada", description: `Foram realizadas ${summary.totalAttempts} tentativas.` });
-      }));
+      const handles = await Promise.all([
+        PbxMobile.addListener('callStateChanged', async (event) => {
+          console.log('Event: callStateChanged', event);
+          if (event.state === 'disconnected') removeFromActive(event.callId);
+          updateActiveCalls();
+        }),
+        PbxMobile.addListener('activeCallsChanged', (event) => {
+          console.log('Event: activeCallsChanged', event.calls);
+          setActiveCalls(event.calls);
+        }),
+        PbxMobile.addListener('dialerCampaignProgress', (progress) => {
+          console.log('Event: dialerCampaignProgress', progress);
+          setCampaignProgress(progress as CampaignProgress);
+        }),
+        PbxMobile.addListener('dialerCampaignCompleted', (summary) => {
+          console.log('Event: dialerCampaignCompleted', summary);
+          setCampaignSummary(summary as CampaignSummary);
+          setCampaignProgress(null); // Reset progress
+          toast({ title: "Campanha Finalizada", description: `Foram realizadas ${summary.totalAttempts} tentativas.` });
+        })
+      ]);
       console.log("Native event listeners set up.");
       // Sync state immediately after setup to avoid race conditions
       updateActiveCalls();
+      return handles;
     };
 
-    setupListeners();
+    const handlesPromise = setup();
 
     return () => {
       console.log("Cleaning up native event listeners...");
-      handles.forEach(handle => handle.remove());
+      handlesPromise.then(handles => {
+        handles.forEach(handle => handle.remove());
+      });
     };
   }, []); // Empty dependency array ensures this runs only once on mount
 
