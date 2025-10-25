@@ -5,13 +5,14 @@ import android.os.Build
 import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Manages PhoneAccounts by finding and mapping them to detected SIM cards using their slot index.
- * This allows the app to choose which existing SIM to use for outgoing calls.
+ * Manages PhoneAccounts by finding and mapping them to detected SIM cards.
+ * This robust version works for physical and eSIMs by matching phone numbers.
  */
 class SimPhoneAccountManager(private val context: Context) {
     private val TAG = "SimPhoneAccountManager"
@@ -19,32 +20,47 @@ class SimPhoneAccountManager(private val context: Context) {
 
     /**
      * Builds a map from the app-specific simId to the system's PhoneAccountHandle.
-     * It links the PhoneAccount to a physical slot by parsing the account's short description.
+     * It reliably links PhoneAccounts to Subscriptions by matching their phone numbers.
      */
     fun buildAccountMap(simCards: List<SimCardInfo>) {
         accountMap.clear()
+        Log.d(TAG, "Starting robust account mapping process using phone numbers...")
         try {
             val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+            val subscriptionManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as SubscriptionManager
 
             val systemAccounts = telecomManager.callCapablePhoneAccounts
-            if (systemAccounts.isNullOrEmpty()) {
-                Log.e(TAG, "No call-capable system phone accounts found!")
+            val activeSubscriptions = subscriptionManager.activeSubscriptionInfoList
+
+            if (systemAccounts.isNullOrEmpty() || activeSubscriptions.isNullOrEmpty()) {
+                Log.e(TAG, "No system accounts or active subscriptions found. Cannot map.")
                 return
             }
 
             // Create a lookup map from Slot Index -> PhoneAccountHandle
             val slotToAccountHandleMap = mutableMapOf<Int, PhoneAccountHandle>()
-            systemAccounts.forEach { handle ->
-                val account = telecomManager.getPhoneAccount(handle)
-                if (account != null) {
-                    val slotIndex = parseSlotIndexFromDescription(account)
-                    if (slotIndex != -1) {
-                        slotToAccountHandleMap[slotIndex] = handle
-                    } else {
-                        Log.w(TAG, "Could not parse slot index from account description: '${account.shortDescription}'")
-                    }
+
+            activeSubscriptions.forEach { subInfo ->
+                val subNumber = subInfo.number
+                val slotIndex = subInfo.simSlotIndex
+
+                if (subNumber.isNullOrEmpty()) {
+                    Log.w(TAG, "Subscription in slot $slotIndex has no number, cannot map it.")
+                    return@forEach
+                }
+
+                val matchingAccount = systemAccounts.find { handle ->
+                    val account = telecomManager.getPhoneAccount(handle)
+                    val accountNumber = account?.subscriptionAddress?.schemeSpecificPart
+                    // Normalize and compare numbers
+                    normalizePhoneNumber(accountNumber) == normalizePhoneNumber(subNumber)
+                }
+
+                if (matchingAccount != null) {
+                    slotToAccountHandleMap[slotIndex] = matchingAccount
+                    Log.i(TAG, "Successfully associated Subscription in slot $slotIndex with a system account via phone number.")
                 } else {
-                     Log.w(TAG, "Could not retrieve PhoneAccount for handle: ${handle.id}")
+                    Log.w(TAG, "Could not find a matching system account for subscription in slot $slotIndex.")
                 }
             }
 
@@ -55,7 +71,7 @@ class SimPhoneAccountManager(private val context: Context) {
 
                 if (matchingAccount != null) {
                     accountMap[simInfo.id] = matchingAccount
-                    Log.i(TAG, "SUCCESS: Mapped app simId ${simInfo.id} (slot $slotIndex) to account ${matchingAccount.id}")
+                    Log.i(TAG, "SUCCESS: Final mapping for app simId ${simInfo.id} (slot $slotIndex) is account ${matchingAccount.id}")
                 } else {
                     Log.e(TAG, "FAILURE: No system account was mapped for slot $slotIndex.")
                 }
@@ -68,23 +84,8 @@ class SimPhoneAccountManager(private val context: Context) {
         }
     }
 
-    /**
-     * Parses the SIM slot index from the PhoneAccount's short description.
-     * The description often contains a string like "Chip, slot: 0".
-     */
-    private fun parseSlotIndexFromDescription(account: PhoneAccount): Int {
-        val description = account.shortDescription?.toString() ?: return -1
-        val slotPrefix = "slot: "
-        val startIndex = description.lastIndexOf(slotPrefix)
-        if (startIndex != -1) {
-            try {
-                val slotStr = description.substring(startIndex + slotPrefix.length)
-                return slotStr.trim().toInt()
-            } catch (e: NumberFormatException) {
-                Log.e(TAG, "Could not parse integer from slot description: '$description'")
-            }
-        }
-        return -1
+    private fun normalizePhoneNumber(number: String?): String {
+        return number?.filter { it.isDigit() } ?: ""
     }
 
     fun getPhoneAccountHandle(simId: String): PhoneAccountHandle? {
