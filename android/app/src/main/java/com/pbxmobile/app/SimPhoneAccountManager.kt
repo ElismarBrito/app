@@ -1,139 +1,106 @@
 package com.pbxmobile.app
 
-import android.content.ComponentName
 import android.content.Context
+import android.os.Build
 import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import android.telephony.SubscriptionManager
 import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Manages PhoneAccount registration for each SIM card.
- * Allows the app to choose which SIM to use for outgoing calls.
+ * Manages PhoneAccounts by finding and mapping them to detected SIM cards using their slot index.
+ * This allows the app to choose which existing SIM to use for outgoing calls.
  */
 class SimPhoneAccountManager(private val context: Context) {
     private val TAG = "SimPhoneAccountManager"
-    private val registeredAccounts = ConcurrentHashMap<String, PhoneAccountHandle>()
-    
+    private val accountMap = ConcurrentHashMap<String, PhoneAccountHandle>()
+
     /**
-     * Register a PhoneAccount for a specific SIM card
+     * Builds a map from the app-specific simId to the system's PhoneAccountHandle.
+     * It links the PhoneAccount to a physical slot by parsing the account's short description.
      */
-    fun registerSimAccount(simInfo: SimCardInfo): PhoneAccountHandle? {
+    fun buildAccountMap(simCards: List<SimCardInfo>) {
+        accountMap.clear()
         try {
             val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            
-            // Create unique account ID for this SIM
-            val accountId = "pbx_sim_${simInfo.slotIndex}_${simInfo.iccId}"
-            
-            // Check if already registered
-            if (registeredAccounts.containsKey(accountId)) {
-                Log.d(TAG, "PhoneAccount already registered for SIM: ${simInfo.displayName}")
-                return registeredAccounts[accountId]
+
+            val systemAccounts = telecomManager.callCapablePhoneAccounts
+            if (systemAccounts.isNullOrEmpty()) {
+                Log.e(TAG, "No call-capable system phone accounts found!")
+                return
             }
-            
-            val componentName = ComponentName(context, MyConnectionService::class.java)
-            val phoneAccountHandle = PhoneAccountHandle(componentName, accountId)
-            
-            // Build phone account with SIM-specific information
-            val phoneAccountBuilder = PhoneAccount.builder(phoneAccountHandle, simInfo.displayName)
-                .setCapabilities(
-                    PhoneAccount.CAPABILITY_CALL_PROVIDER or
-                    PhoneAccount.CAPABILITY_CONNECTION_MANAGER or
-                    PhoneAccount.CAPABILITY_SELF_MANAGED or
-                    PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION
-                )
-                .setAddress(android.net.Uri.parse("tel:${simInfo.phoneNumber}"))
-                .setShortDescription("${simInfo.carrierName} - SIM ${simInfo.slotIndex + 1}")
-                .setHighlightColor(if (simInfo.slotIndex == 0) 0xFF4CAF50.toInt() else 0xFF2196F3.toInt())
-            
-            // Add subscription ID if available (for multi-SIM support)
-            if (simInfo.subscriptionId > 0) {
-                phoneAccountBuilder.setSubscriptionAddress(android.net.Uri.parse("tel:${simInfo.phoneNumber}"))
-            }
-            
-            val phoneAccount = phoneAccountBuilder.build()
-            
-            // Register the account
-            telecomManager.registerPhoneAccount(phoneAccount)
-            
-            // Store the handle
-            registeredAccounts[accountId] = phoneAccountHandle
-            
-            Log.d(TAG, "PhoneAccount registered successfully: ${simInfo.displayName} (${accountId})")
-            
-            return phoneAccountHandle
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error registering PhoneAccount for SIM ${simInfo.displayName}", e)
-            return null
-        }
-    }
-    
-    /**
-     * Register PhoneAccounts for all detected SIM cards
-     */
-    fun registerAllSimAccounts(simCards: List<SimCardInfo>): Map<String, PhoneAccountHandle> {
-        val handles = mutableMapOf<String, PhoneAccountHandle>()
-        
-        simCards.forEach { simInfo ->
-            val handle = registerSimAccount(simInfo)
-            if (handle != null) {
-                handles[simInfo.id] = handle
-            }
-        }
-        
-        Log.d(TAG, "Registered ${handles.size} PhoneAccounts for ${simCards.size} SIM cards")
-        
-        return handles
-    }
-    
-    /**
-     * Get PhoneAccountHandle for a specific SIM by its ID
-     */
-    fun getPhoneAccountHandle(simId: String): PhoneAccountHandle? {
-        return registeredAccounts.values.find { handle ->
-            handle.id.contains(simId) || registeredAccounts.entries.find { 
-                it.value == handle 
-            }?.key?.contains(simId) == true
-        }
-    }
-    
-    /**
-     * Get default PhoneAccountHandle (usually the first registered SIM)
-     */
-    fun getDefaultPhoneAccountHandle(): PhoneAccountHandle? {
-        return registeredAccounts.values.firstOrNull()
-    }
-    
-    /**
-     * Unregister all PhoneAccounts
-     */
-    fun unregisterAllAccounts() {
-        try {
-            val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            
-            registeredAccounts.values.forEach { handle ->
-                try {
-                    telecomManager.unregisterPhoneAccount(handle)
-                    Log.d(TAG, "Unregistered PhoneAccount: ${handle.id}")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error unregistering PhoneAccount: ${handle.id}", e)
+
+            // Create a lookup map from Slot Index -> PhoneAccountHandle
+            val slotToAccountHandleMap = mutableMapOf<Int, PhoneAccountHandle>()
+            systemAccounts.forEach { handle ->
+                val account = telecomManager.getPhoneAccount(handle)
+                if (account != null) {
+                    val slotIndex = parseSlotIndexFromDescription(account)
+                    if (slotIndex != -1) {
+                        slotToAccountHandleMap[slotIndex] = handle
+                    } else {
+                        Log.w(TAG, "Could not parse slot index from account description: '${account.shortDescription}'")
+                    }
+                } else {
+                     Log.w(TAG, "Could not retrieve PhoneAccount for handle: ${handle.id}")
                 }
             }
-            
-            registeredAccounts.clear()
-            Log.d(TAG, "All PhoneAccounts unregistered")
-            
+
+            // Now, map the SIMs from our detector using the slot index
+            simCards.forEach { simInfo ->
+                val slotIndex = simInfo.slotIndex
+                val matchingAccount = slotToAccountHandleMap[slotIndex]
+
+                if (matchingAccount != null) {
+                    accountMap[simInfo.id] = matchingAccount
+                    Log.i(TAG, "SUCCESS: Mapped app simId ${simInfo.id} (slot $slotIndex) to account ${matchingAccount.id}")
+                } else {
+                    Log.e(TAG, "FAILURE: No system account was mapped for slot $slotIndex.")
+                }
+            }
+
+        } catch (e: SecurityException) {
+            Log.e(TAG, "SecurityException during mapping. Check READ_PHONE_STATE and ROLE_DIALER permissions.", e)
         } catch (e: Exception) {
-            Log.e(TAG, "Error during cleanup", e)
+            Log.e(TAG, "Generic exception during mapping.", e)
         }
     }
-    
+
     /**
-     * Get all registered PhoneAccountHandles
+     * Parses the SIM slot index from the PhoneAccount's short description.
+     * The description often contains a string like "Chip, slot: 0".
      */
-    fun getAllHandles(): Map<String, PhoneAccountHandle> {
-        return registeredAccounts.toMap()
+    private fun parseSlotIndexFromDescription(account: PhoneAccount): Int {
+        val description = account.shortDescription?.toString() ?: return -1
+        val slotPrefix = "slot: "
+        val startIndex = description.lastIndexOf(slotPrefix)
+        if (startIndex != -1) {
+            try {
+                val slotStr = description.substring(startIndex + slotPrefix.length)
+                return slotStr.trim().toInt()
+            } catch (e: NumberFormatException) {
+                Log.e(TAG, "Could not parse integer from slot description: '$description'")
+            }
+        }
+        return -1
+    }
+
+    fun getPhoneAccountHandle(simId: String): PhoneAccountHandle? {
+        val handle = accountMap[simId]
+        if (handle == null) {
+            Log.w(TAG, "Could not find mapped PhoneAccountHandle for simId: $simId. Available keys in map: ${accountMap.keys.joinToString()}")
+        }
+        return handle
+    }
+
+    fun getDefaultPhoneAccountHandle(): PhoneAccountHandle? {
+        return accountMap.values.firstOrNull()
+    }
+
+    fun unregisterAllAccounts() {
+        Log.d(TAG, "Clearing all mapped phone accounts.")
+        accountMap.clear()
     }
 }

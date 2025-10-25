@@ -634,16 +634,16 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               description: `Iniciando chamadas para ${command.data.list.numbers.length} números`,
               variant: "default"
             });
-            // Start automated calling
-            try {
-              const result = await PbxMobile.startAutomatedCalling({
-                numbers: command.data.list.numbers,
-                deviceId: deviceId,
-                listId: command.data.listId
-              });
-              
-              // Add to automated sessions to trigger UI change
-              setAutomatedSessions(prev => [...prev, result.sessionId]);
+                          // Start automated calling
+                        try {
+                          const result = await PbxMobile.startAutomatedCalling({
+                            numbers: command.data.list.numbers,
+                            deviceId: deviceId,
+                            listId: command.data.listId,
+                            simId: selectedSimId
+                          });
+                          
+                          // Add to automated sessions to trigger UI change              setAutomatedSessions(prev => [...prev, result.sessionId]);
               
               console.log('Campanha iniciada com sucesso, sessionId:', result.sessionId);
             } catch (error) {

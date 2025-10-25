@@ -131,17 +131,22 @@ class PbxMobilePlugin : Plugin() {
     @PluginMethod
     fun getSimCards(call: PluginCall) {
         try {
+            Log.d(TAG, "[getSimCards] Method called.")
             val simDetector = SimCardDetector(activity.applicationContext)
             val simCardsList = simDetector.getSimCards()
+            Log.d(TAG, "[getSimCards] SimDetector found ${simCardsList.size} SIMs.")
+
             val simCards = simDetector.toJSONArray()
             
-            // Register PhoneAccounts for all detected SIMs
-            simPhoneAccountManager.registerAllSimAccounts(simCardsList)
+            // Build a map of the system's phone accounts corresponding to our detected SIMs
+            Log.d(TAG, "[getSimCards] Calling buildAccountMap...")
+            simPhoneAccountManager.buildAccountMap(simCardsList)
             
             val ret = JSObject()
             ret.put("simCards", simCards)
             call.resolve(ret)
         } catch (e: Exception) {
+            Log.e(TAG, "[getSimCards] Error detecting SIMs or registering accounts", e)
             call.reject("Failed to detect SIM cards: ${e.message}", e)
         }
     }
