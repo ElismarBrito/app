@@ -161,11 +161,16 @@ class MyInCallService : InCallService() {
     }
     
     private fun extractCallId(call: Call): String {
-        // Try to get call ID from extras first
+        // IMPORTANTE: Tenta obter callId do extras (chave "callId" minúscula)
+        // Isso deve corresponder ao que o PowerDialerManager envia
         val extras = call.details?.extras
-        val callId = extras?.getString("CALL_ID")
+        val callId = extras?.getString("callId") 
+            ?: extras?.getString("CALL_ID") // Fallback para chave antiga
+            ?: "call_${call.hashCode()}_${System.currentTimeMillis()}" // Fallback para chamadas manuais
         
-        return callId ?: "call_${call.hashCode()}"
+        Log.d(TAG, "🔍 CallId extraído: $callId (número: ${call.details?.handle?.schemeSpecificPart})")
+        
+        return callId
     }
     
     private fun mapCallState(state: Int): String {
@@ -205,10 +210,19 @@ class MyInCallService : InCallService() {
             override fun onStateChanged(call: Call, state: Int) {
                 super.onStateChanged(call, state)
                 
-                val stateString = mapCallState(state)
-                Log.d(TAG, "Call state changed: $callId -> $stateString")
-                
-                ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, stateString, phoneNumber)
+                // Get the PowerDialerManager instance
+                val powerDialerManager = ServiceRegistry.getPlugin()?.powerDialerManager
+
+                if (powerDialerManager != null) {
+                    // Feed the state change into the Power Dialer engine
+                    powerDialerManager.updateCallState(callId, call, state)
+                } else {
+                    // Fallback to old notification if manager is not available
+                    val stateString = mapCallState(state)
+                    Log.w(TAG, "PowerDialerManager not found, using fallback notification.")
+                    ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, stateString, phoneNumber)
+                }
+
                 updateActiveCallsList()
             }
             

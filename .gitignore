@@ -1,3 +1,11 @@
 android/.gradle/
 android/app/build/
 dist/
+
+# Build gerado (assets)
+android/app/src/main/assets/public/assets/
+android/app/src/main/assets/public/index.html
+
+# Cache IDE
+.idea/caches/
+.idea/deviceManager.xml

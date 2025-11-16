@@ -35,15 +35,18 @@ class MyConnectionService : ConnectionService() {
         }
         
         val phoneNumber = request.address?.schemeSpecificPart
-        val callId = request.extras?.getString("CALL_ID") ?: generateCallId()
+        // IMPORTANTE: Usar "callId" (minúsculo) para compatibilidade com PowerDialerManager
+        val callId = request.extras?.getString("callId") 
+            ?: request.extras?.getString("CALL_ID") 
+            ?: generateCallId()
         val isAutoCall = request.extras?.getBoolean("AUTO_CALL", false) ?: false
         
-        Log.d(TAG, "Outgoing call to: $phoneNumber, CallID: $callId, Auto: $isAutoCall")
+        Log.d(TAG, "📞 Outgoing call to: $phoneNumber, CallID: $callId, Auto: $isAutoCall")
         
         val connection = PbxConnection(callId, phoneNumber ?: "", true, isAutoCall)
         activeConnections[callId] = connection
         
-        // Notify plugin about call creation
+        // Notify plugin about call creation (MyInCallService vai notificar o PowerDialerManager)
         ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, "DIALING", phoneNumber ?: "")
         
         return connection
@@ -123,7 +126,7 @@ class MyConnectionService : ConnectionService() {
     ) : Connection() {
         
         init {
-            Log.d(TAG, "PbxConnection created: $callId for $number")
+            Log.d(TAG, "PbxConnection created: $callId for $number (outgoing=$isOutgoing, automated=$isAutomated)")
             
             // Set connection properties
             connectionProperties = PROPERTY_SELF_MANAGED
@@ -137,37 +140,15 @@ class MyConnectionService : ConnectionService() {
             // Set address
             setAddress(Uri.parse("tel:$number"), TelecomManager.PRESENTATION_ALLOWED)
             
-            // Start connection sequence
+            // Start connection sequence - DEIXA O SISTEMA ANDROID GERENCIAR OS ESTADOS
             if (isOutgoing) {
                 setDialing()
-                
-                // Simulate dialing process for automated calls
-                if (isAutomated) {
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        simulateCallProgression()
-                    }, 1000)
-                }
+                // NÃO simula mais - o Android Telecom Framework gerencia os estados
+                // O MyInCallService vai notificar o PowerDialerManager sobre mudanças de estado
+                Log.d(TAG, "✅ Chamada saindo iniciada: $callId para $number")
             } else {
                 setRinging()
-            }
-        }
-        
-        private fun simulateCallProgression() {
-            // Simulate call states for automated calling
-            android.os.Handler(android.os.Looper.getMainLooper()).apply {
-                postDelayed({
-                    setActive()
-                    ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, "ACTIVE", number)
-                    Log.d(TAG, "Call $callId became active")
-                }, 2000)
-                
-                postDelayed({
-                    setDisconnected(DisconnectCause(DisconnectCause.REMOTE))
-                    destroy()
-                    activeConnections.remove(callId)
-                    ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, "DISCONNECTED", number)
-                    Log.d(TAG, "Call $callId disconnected")
-                }, 8000) // End call after 8 seconds total
+                Log.d(TAG, "📲 Chamada entrando: $callId de $number")
             }
         }
         

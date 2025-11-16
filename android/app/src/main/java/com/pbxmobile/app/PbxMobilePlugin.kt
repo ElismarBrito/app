@@ -22,7 +22,8 @@ import com.getcapacitor.annotation.PermissionCallback
 @CapacitorPlugin(name = "PbxMobile")
 class PbxMobilePlugin : Plugin() {
     private val TAG = "PbxMobilePlugin"
-    private lateinit var automatedCallingManager: AutomatedCallingManager
+    // Remove o antigo manager e torna o novo acessível
+    lateinit var powerDialerManager: PowerDialerManager
     private lateinit var simPhoneAccountManager: SimPhoneAccountManager
     
     override fun load() {
@@ -33,10 +34,56 @@ class PbxMobilePlugin : Plugin() {
         ServiceRegistry.registerPlugin(this)
         
         // Initialize managers
-        automatedCallingManager = AutomatedCallingManager(context, this)
+        powerDialerManager = PowerDialerManager(context)
         simPhoneAccountManager = SimPhoneAccountManager(context)
         
-        Log.d(TAG, "PbxMobile plugin initialization complete")
+        // Configura os callbacks para enviar eventos para o frontend
+        powerDialerManager.setCallbacks(
+            onStateChanged = { result ->
+                val data = JSObject().apply {
+                    put("number", result.number)
+                    put("callId", result.callId)
+                    put("state", result.state.name)
+                    put("duration", result.duration)
+                    put("willRetry", result.willRetry)
+                }
+                notifyListeners("dialerCallStateChanged", data)
+            },
+            onProgress = { progress ->
+                 val data = JSObject().apply {
+                    put("sessionId", progress.sessionId)
+                    put("totalNumbers", progress.totalNumbers)
+                    put("completedNumbers", progress.completedNumbers)
+                    put("activeCallsCount", progress.activeCallsCount)
+                    put("successfulCalls", progress.successfulCalls)
+                    put("failedCalls", progress.failedCalls)
+                    put("progressPercentage", progress.progressPercentage)
+                }
+                notifyListeners("dialerCampaignProgress", data)
+            },
+            onCompleted = { summary ->
+                // Para o sumário, podemos converter a lista de resultados
+                val resultsArray = JSArray()
+                summary.results.forEach { result ->
+                    resultsArray.put(JSObject().apply {
+                        put("number", result.number)
+                        put("state", result.state.name)
+                        put("duration", result.duration)
+                    })
+                }
+                val data = JSObject().apply {
+                    put("sessionId", summary.sessionId)
+                    put("totalNumbers", summary.totalNumbers)
+                    put("successfulCalls", summary.successfulCalls)
+                    put("failedCalls", summary.failedCalls)
+                    put("duration", summary.duration)
+                    put("results", resultsArray)
+                }
+                notifyListeners("dialerCampaignCompleted", data)
+            }
+        )
+        
+        Log.d(TAG, "PbxMobile plugin initialization complete with PowerDialerManager.")
     }
     
     /**
@@ -340,53 +387,49 @@ class PbxMobilePlugin : Plugin() {
     }
 
     @PluginMethod
-    fun startAutomatedCalling(call: PluginCall) {
+    fun startCampaign(call: PluginCall) {
         val numbersArray = call.getArray("numbers")
         val deviceId = call.getString("deviceId")
         val listId = call.getString("listId")
-        val simId = call.getString("simId") // Optional SIM ID for automated calls
-        
+        val listName = call.getString("listName") ?: "Unnamed List"
+        val simId = call.getString("simId")
+
         if (numbersArray == null || deviceId.isNullOrBlank() || listId.isNullOrBlank()) {
-            call.reject("Numbers array, deviceId, and listId are required")
+            call.reject("numbers, deviceId, and listId are required")
             return
         }
-        
+
         try {
-            val numbers = mutableListOf<String>()
-            for (i in 0 until numbersArray.length()) {
-                numbers.add(numbersArray.getString(i))
-            }
-            
-            Log.d(TAG, "Starting automated calling with ${numbers.size} numbers using SIM: $simId")
-            
-            val sessionId = automatedCallingManager.startAutomatedCalling(numbers, deviceId, listId, simId)
-            
+            val numbers = List(numbersArray.length()) { i -> numbersArray.getString(i) }
+            val phoneAccountHandle = if (simId != null) simPhoneAccountManager.getPhoneAccountHandle(simId) else null
+
+            Log.d(TAG, "Starting campaign with ${numbers.size} numbers using SIM: $simId")
+
+            val sessionId = powerDialerManager.startCampaign(numbers, deviceId, listId, listName, phoneAccountHandle)
             call.resolve(JSObject().put("sessionId", sessionId))
-            
+
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting automated calling", e)
-            call.reject("Failed to start automated calling: ${e.message}")
+            Log.e(TAG, "Error starting campaign", e)
+            call.reject("Failed to start campaign: ${e.message}")
         }
     }
 
     @PluginMethod
-    fun stopAutomatedCalling(call: PluginCall) {
-        val sessionId = call.getString("sessionId")
-        
-        if (sessionId.isNullOrBlank()) {
-            call.reject("Session ID is required")
-            return
-        }
-        
-        Log.d(TAG, "Stopping automated calling session: $sessionId")
-        
-        val success = automatedCallingManager.stopAutomatedCalling(sessionId)
-        
-        if (success) {
-            call.resolve()
-        } else {
-            call.reject("Session not found or already stopped")
-        }
+    fun pauseCampaign(call: PluginCall) {
+        powerDialerManager.pauseCampaign()
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun resumeCampaign(call: PluginCall) {
+        powerDialerManager.resumeCampaign()
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun stopCampaign(call: PluginCall) {
+        powerDialerManager.stopCampaign()
+        call.resolve()
     }
     
     // Event notification methods for services
@@ -455,7 +498,7 @@ class PbxMobilePlugin : Plugin() {
     override fun handleOnDestroy() {
         super.handleOnDestroy()
         Log.d(TAG, "Plugin destroyed, cleaning up")
-        automatedCallingManager.cleanup()
+        powerDialerManager.destroy()
         simPhoneAccountManager.unregisterAllAccounts()
     }
 }
