@@ -161,11 +161,16 @@ class MyInCallService : InCallService() {
     }
     
     private fun extractCallId(call: Call): String {
-        // Try to get call ID from extras first. This MUST match the key used in PowerDialerManager.
+        // IMPORTANTE: Tenta obter callId do extras (chave "callId" minúscula)
+        // Isso deve corresponder ao que o PowerDialerManager envia
         val extras = call.details?.extras
-        val callId = extras?.getString("callId") // Corrected key
+        val callId = extras?.getString("callId") 
+            ?: extras?.getString("CALL_ID") // Fallback para chave antiga
+            ?: "call_${call.hashCode()}_${System.currentTimeMillis()}" // Fallback para chamadas manuais
         
-        return callId ?: "call_${call.hashCode()}" // Fallback for non-campaign calls
+        Log.d(TAG, "🔍 CallId extraído: $callId (número: ${call.details?.handle?.schemeSpecificPart})")
+        
+        return callId
     }
     
     private fun mapCallState(state: Int): String {
