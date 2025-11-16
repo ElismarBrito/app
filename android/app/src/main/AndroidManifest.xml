@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.pbxmobile.app">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Namespace é definido no build.gradle, não precisa mais do atributo package aqui -->
     
     <!-- Phone permissions -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
@@ -13,6 +13,11 @@
     <!-- Network permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    
+    <!-- Camera permission for QR code scanner -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     
     <!-- Telecom permissions -->
     <uses-permission android:name="android.permission.BIND_TELECOM_CONNECTION_SERVICE" />
@@ -64,6 +69,13 @@
             </intent-filter>
             
         </activity>
+        
+        <!-- QR Scanner Activity -->
+        <activity
+            android:name=".QRScannerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen" />
         
         <!-- Connection Service -->
         <service

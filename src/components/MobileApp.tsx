@@ -107,15 +107,87 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   // Use device status hook only when device is paired
   const { startHeartbeat, stopHeartbeat } = useDeviceStatus(deviceId || '');
 
+  // Extrai o código de sessão da URL do QR Code ou retorna o código diretamente
+  const extractSessionCode = (scannedValue: string): string | null => {
+    if (!scannedValue) {
+      return null;
+    }
+    
+    try {
+      const trimmed = scannedValue.trim();
+      console.log('🔍 extractSessionCode - Valor recebido:', trimmed);
+      
+      // Se for uma URL, tenta extrair o parâmetro 'session'
+      if (trimmed.includes('http://') || trimmed.includes('https://') || trimmed.includes('?')) {
+        try {
+          // Tenta criar URL direta ou adicionar protocolo se necessário
+          let urlString = trimmed;
+          if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+            urlString = `http://${trimmed}`;
+          }
+          
+          const url = new URL(urlString);
+          const sessionParam = url.searchParams.get('session');
+          
+          if (sessionParam) {
+            console.log('🔍 extractSessionCode - Código extraído da URL (searchParams):', sessionParam);
+            return sessionParam.trim();
+          }
+        } catch (urlError) {
+          console.warn('⚠️ Erro ao parsear URL, tentando regex:', urlError);
+        }
+        
+        // Fallback: usa regex para extrair session=xxx
+        const pathMatch = trimmed.match(/[?&]session=([^&]+)/);
+        if (pathMatch && pathMatch[1]) {
+          const code = pathMatch[1].trim();
+          console.log('🔍 extractSessionCode - Código extraído da URL (regex):', code);
+          return code;
+        }
+      }
+      
+      // Se o código começa com "17" e é numérico, usa diretamente (formato esperado)
+      // ou se é apenas números (pode ser código de sessão), usa diretamente
+      const numericCode = trimmed;
+      if (/^\d{10,}$/.test(numericCode)) { // Mínimo 10 dígitos (timestamp tem 13)
+        console.log('🔍 extractSessionCode - Código numérico direto:', numericCode);
+        return numericCode;
+      }
+      
+      console.warn('⚠️ extractSessionCode - Nenhum código válido encontrado');
+      return null;
+    } catch (error) {
+      console.error('❌ Erro ao extrair código de sessão:', error);
+      
+      // Último fallback: tenta usar o valor diretamente se for numérico
+      const numericCode = scannedValue.trim();
+      if (/^\d{10,}$/.test(numericCode)) {
+        console.log('🔍 extractSessionCode - Fallback numérico:', numericCode);
+        return numericCode;
+      }
+      
+      return null;
+    }
+  };
+
   useEffect(() => {
-    // Automatically fill session code from URL parameters
+    // Automatically fill session code from URL parameters and auto-pair if possible
     const urlParams = new URLSearchParams(window.location.search);
     const sessionFromUrl = urlParams.get('session');
     
     if (sessionFromUrl && !deviceId) {
-      setSessionCode(sessionFromUrl);
+      const extractedCode = extractSessionCode(sessionFromUrl);
+      if (extractedCode) {
+        setSessionCode(extractedCode);
+        // Auto-pair after a short delay if user is authenticated
+        if (user) {
+          setTimeout(() => pairDevice(), 1000);
+        }
+      } else {
+        setSessionCode(sessionFromUrl);
+      }
     }
-  }, [deviceId]);
+  }, [deviceId, user]);
 
   // Setup all event listeners on component mount
   useEffect(() => {
@@ -418,7 +490,10 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   };
 
   const pairDevice = async () => {
-    if (!sessionCode.trim()) {
+    // Remove espaços em branco e normaliza o código
+    const cleanSessionCode = sessionCode.trim();
+    
+    if (!cleanSessionCode) {
       toast({
         title: "Erro",
         description: "Digite o código de sessão do QR Code",
@@ -448,6 +523,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         has_esim: deviceInfo.hasESim
       };
 
+      // Log para debug
+      console.log('🔍 Pareamento - Código de sessão:', cleanSessionCode);
+      console.log('🔍 Pareamento - User ID:', user.id);
+      console.log('🔍 Pareamento - Device Payload:', devicePayload);
+
       const response = await fetch(`https://jovnndvixqymfvnxkbep.supabase.co/functions/v1/pair-device`, {
         method: 'POST',
         headers: {
@@ -455,13 +535,20 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impvdm5uZHZpeHF5bWZ2bnhrYmVwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0MzA4NzQsImV4cCI6MjA3MjAwNjg3NH0.wBLgUwk_VkwgPhyyh1Dk8dnAEtuTr8zl3fOxuWO1Scs`
         },
         body: JSON.stringify({
-          session_code: sessionCode,
+          session_code: cleanSessionCode,
           user_id: user.id,
           device_info: devicePayload
         })
       });
 
       const data = await response.json();
+      
+      // Log da resposta
+      console.log('🔍 Pareamento - Resposta do servidor:', {
+        status: response.status,
+        ok: response.ok,
+        data
+      });
 
       if (response.ok) {
         setDeviceId(data.device.id);
@@ -473,14 +560,15 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           variant: "default"
         });
       } else {
+        console.error('❌ Erro no pareamento:', data);
         toast({
           title: "Erro no pareamento",
-          description: data.error || "Código de sessão inválido",
+          description: data.error || "Código de sessão inválido ou expirado. Gere um novo QR Code no dashboard.",
           variant: "destructive"
         });
       }
     } catch (error) {
-      console.error('Erro ao parear dispositivo:', error);
+      console.error('❌ Erro ao parear dispositivo:', error);
       toast({
         title: "Erro",
         description: "Falha na comunicação com o servidor",
@@ -527,11 +615,37 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   };
 
   const handleScanQR = async () => {
-    const scannedCode = await scanQRCode();
-    if (scannedCode) {
-      setSessionCode(scannedCode);
-      // Automatically try to pair if we got a valid code
-      setTimeout(() => pairDevice(), 500);
+    const scannedValue = await scanQRCode();
+    if (scannedValue) {
+      console.log('📷 QR Code escaneado (valor bruto):', scannedValue);
+      
+      const extractedCode = extractSessionCode(scannedValue);
+      console.log('📷 Código extraído:', extractedCode);
+      
+      if (extractedCode) {
+        // Remove espaços e normaliza
+        const cleanCode = extractedCode.trim();
+        setSessionCode(cleanCode);
+        
+        toast({
+          title: "Código extraído",
+          description: `Código de sessão: ${cleanCode}`,
+          variant: "default"
+        });
+        
+        // Automatically try to pair if we got a valid code
+        setTimeout(() => {
+          console.log('🚀 Iniciando pareamento automático...');
+          pairDevice();
+        }, 500);
+      } else {
+        console.error('❌ Não foi possível extrair código de sessão do valor:', scannedValue);
+        toast({
+          title: "Erro ao processar QR Code",
+          description: "Não foi possível extrair o código de sessão. Verifique se o QR Code é válido.",
+          variant: "destructive"
+        });
+      }
     }
   };
 

@@ -1,37 +1,47 @@
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { QRScanner } from '@/plugins/qr-scanner';
 import { useToast } from '@/hooks/use-toast';
-import jsQR from 'jsqr';
 
 export const useQRScanner = () => {
   const { toast } = useToast();
 
   const scanQRCode = async (): Promise<string | null> => {
     try {
-      // Request camera permissions and take photo
-      const image = await Camera.getPhoto({
-        quality: 90,
-        allowEditing: false,
-        resultType: CameraResultType.DataUrl,
-        source: CameraSource.Camera,
-        presentationStyle: 'popover'
+      console.log('📱 useQRScanner - Iniciando scan...');
+      toast({
+        title: "Abrindo scanner",
+        description: "Posicione o QR Code na câmera...",
+        variant: "default"
       });
 
-      if (image.dataUrl) {
+      console.log('📱 useQRScanner - Chamando QRScanner.scan()...');
+      const result = await QRScanner.scan();
+      console.log('📱 useQRScanner - Resultado recebido:', result);
+      console.log('📱 useQRScanner - result.success:', result?.success);
+      console.log('📱 useQRScanner - result.code:', result?.code);
+
+      if (result.success && result.code) {
+        console.log('✅ useQRScanner - QR Code válido:', result.code);
         toast({
-          title: "QR Code detectado",
-          description: "Processando código QR...",
+          title: "QR Code lido!",
+          description: "Código escaneado com sucesso",
           variant: "default"
         });
 
-        return await decodeQRFromImage(image.dataUrl);
+        return result.code;
       }
 
+      console.warn('⚠️ useQRScanner - Resultado inválido ou sem código');
       return null;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error scanning QR code:', error);
       
+      // Se o usuário cancelou, não mostra erro
+      if (error?.message?.includes('cancelado') || error?.message?.includes('cancel')) {
+        return null;
+      }
+      
       // Check if it's a permission error
-      if (error instanceof Error && error.message.includes('permission')) {
+      if (error?.message?.includes('permission') || error?.message?.includes('Permissão')) {
         toast({
           title: "Permissão necessária",
           description: "Permita o acesso à câmera para escanear QR codes",
@@ -40,7 +50,7 @@ export const useQRScanner = () => {
       } else {
         toast({
           title: "Erro no scanner",
-          description: "Não foi possível abrir a câmera. Use inserção manual.",
+          description: error?.message || "Não foi possível abrir o scanner. Use inserção manual.",
           variant: "destructive"
         });
       }
@@ -50,38 +60,4 @@ export const useQRScanner = () => {
   };
 
   return { scanQRCode };
-};
-
-const decodeQRFromImage = async (dataUrl: string): Promise<string | null> => {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      if (!ctx) {
-        reject(new Error('Failed to get canvas context'));
-        return;
-      }
-      
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-      
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      
-      if (code) {
-        resolve(code.data);
-      } else {
-        resolve(null);
-      }
-    };
-    
-    img.onerror = () => {
-      reject(new Error('Failed to load image'));
-    };
-    
-    img.src = dataUrl;
-  });
 };
