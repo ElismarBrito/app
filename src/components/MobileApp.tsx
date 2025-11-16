@@ -53,6 +53,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   // New states for Power Dialer
   const [campaignProgress, setCampaignProgress] = useState<CampaignProgress | null>(null);
   const [campaignSummary, setCampaignSummary] = useState<CampaignSummary | null>(null);
+  const [campaignName, setCampaignName] = useState<string>('');
 
   // Map to track native call IDs to database call IDs
   const callMapRef = useRef<Map<string, string>>(new Map());
@@ -118,9 +119,10 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
   // Setup all event listeners on component mount
   useEffect(() => {
+    let handles: PluginListenerHandle[] = [];
     const setup = async () => {
       console.log("Setting up native event listeners...");
-      const handles = await Promise.all([
+      handles = await Promise.all([
         PbxMobile.addListener('callStateChanged', async (event) => {
           console.log('Event: callStateChanged', event);
           if (event.state === 'disconnected') removeFromActive(event.callId);
@@ -144,16 +146,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       console.log("Native event listeners set up.");
       // Sync state immediately after setup to avoid race conditions
       updateActiveCalls();
-      return handles;
     };
 
-    const handlesPromise = setup();
+    setup();
 
     return () => {
       console.log("Cleaning up native event listeners...");
-      handlesPromise.then(handles => {
-        handles.forEach(handle => handle.remove());
-      });
+      handles.forEach(handle => handle.remove());
     };
   }, []); // Empty dependency array ensures this runs only once on mount
 
@@ -576,6 +575,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         console.log('Processando comando start_campaign:', command.data);
         if (command.data.list && command.data.list.numbers) {
           try {
+            setCampaignName(command.data.listName);
             await PbxMobile.startCampaign({
               numbers: command.data.list.numbers,
               deviceId: deviceId!,
@@ -670,11 +670,9 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     });
   };
 
-  const campaignStatusForDialer = campaignProgress ? {
-    isActive: campaignProgress.progressPercentage < 100 && campaignProgress.activeCallsCount > 0,
-    completedCalls: campaignProgress.completedNumbers,
-    totalNumbers: campaignProgress.totalNumbers,
-  } : undefined;
+  const handlePauseCampaign = () => PbxMobile.pauseCampaign();
+  const handleResumeCampaign = () => PbxMobile.resumeCampaign();
+  const handleStopCampaign = () => PbxMobile.stopCampaign();
 
   if (isStandalone) {
     // Show Corporate Dialer when paired and configured, OR when there are active calls/campaigns/pending calls
@@ -698,7 +696,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           onEndCall={endCall}
           onMergeActiveCalls={mergeActiveCalls}
           deviceModel={deviceInfo.model}
-          campaignStatus={campaignStatusForDialer}
+          campaignProgress={campaignProgress}
+          campaignName={campaignName}
+          onPauseCampaign={handlePauseCampaign}
+          onResumeCampaign={handleResumeCampaign}
+          onStopCampaign={handleStopCampaign}
         />
       );
     }

@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   Phone, 
   PhoneOff, 
   Delete,
   Users,
-  Clock
+  Clock,
+  Play,
+  Pause,
+  Square
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { CallInfo } from '@/plugins/pbx-mobile';
+import type { CallInfo, CampaignProgress } from '@/plugins/pbx-mobile';
 
 interface CorporateDialerProps {
   deviceName: string;
@@ -27,12 +31,11 @@ interface CorporateDialerProps {
   onEndCall: (callId: string) => void;
   onMergeActiveCalls: () => void;
   deviceModel: string;
-  campaignStatus?: {
-    isActive: boolean;
-    currentNumber?: string;
-    totalNumbers?: number;
-    completedCalls?: number;
-  };
+  campaignProgress: CampaignProgress | null;
+  campaignName: string;
+  onPauseCampaign: () => void;
+  onResumeCampaign: () => void;
+  onStopCampaign: () => void;
 }
 
 export const CorporateDialer = ({
@@ -43,10 +46,15 @@ export const CorporateDialer = ({
   onEndCall,
   onMergeActiveCalls,
   deviceModel,
-  campaignStatus
+  campaignProgress,
+  campaignName,
+  onPauseCampaign,
+  onResumeCampaign,
+  onStopCampaign
 }: CorporateDialerProps) => {
   const { toast } = useToast();
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [isCampaignPaused, setIsCampaignPaused] = useState(false);
 
   const dialpadNumbers = [
     ['1', '2', '3'],
@@ -81,8 +89,18 @@ export const CorporateDialer = ({
     activeCalls.forEach(call => onEndCall(call.callId));
   };
 
+  const handlePause = () => {
+    onPauseCampaign();
+    setIsCampaignPaused(true);
+  };
+
+  const handleResume = () => {
+    onResumeCampaign();
+    setIsCampaignPaused(false);
+  };
+
   const hasActiveCalls = activeCalls.length > 0;
-  const isInCampaign = campaignStatus?.isActive;
+  const isInCampaign = !!campaignProgress;
 
 
   return (
@@ -109,24 +127,62 @@ export const CorporateDialer = ({
         </Card>
 
         {/* Status da Campanha */}
-        {isInCampaign && (
-          <Card className="bg-orange-500/10 backdrop-blur-sm border-orange-500/30">
-            <CardContent className="p-4">
-              <div className="text-center space-y-2">
-                <div className="flex items-center justify-center gap-2 text-white">
-                  <Clock className="w-4 h-4" />
-                  <span className="text-sm font-medium">Campanha Ativa</span>
+        {isInCampaign && campaignProgress && (
+          <Card className="border-primary/50 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-primary">
+                <Play className="h-5 w-5" />
+                Campanha em Andamento
+              </CardTitle>
+              <CardDescription>Discador automático ativo para a lista: <strong>{campaignName}</strong></CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-sm font-medium text-muted-foreground">Progresso</span>
+                  <span className="text-sm font-bold">{campaignProgress.completedNumbers} / {campaignProgress.totalNumbers}</span>
                 </div>
-                {campaignStatus?.currentNumber && (
-                  <div className="text-white/80 text-sm">
-                    <p>Ligando para: <span className="font-medium">{campaignStatus.currentNumber}</span></p>
+                <Progress value={campaignProgress.progressPercentage} className="w-full" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 text-center">
+                <div className="p-2 border rounded-lg">
+                  <p className="text-2xl font-bold">{campaignProgress.activeCallsCount}</p>
+                  <p className="text-xs text-muted-foreground">Chamadas Ativas</p>
+                </div>
+                <div className="p-2 border rounded-lg">
+                  <p className="text-2xl font-bold">{campaignProgress.totalNumbers}</p>
+                  <p className="text-xs text-muted-foreground">Números na Lista</p>
+                </div>
+              </div>
+
+              {campaignProgress.dialingNumbers && campaignProgress.dialingNumbers.length > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Discando para:</p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {campaignProgress.dialingNumbers.map(num => (
+                      <Badge key={num} variant="secondary">{num}</Badge>
+                    ))}
                   </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 justify-center">
+                {isCampaignPaused ? (
+                  <Button onClick={handleResume} size="lg" className="flex-1 bg-green-600 hover:bg-green-700">
+                    <Play className="h-5 w-5 mr-2" />
+                    Retomar
+                  </Button>
+                ) : (
+                  <Button onClick={handlePause} size="lg" variant="secondary" className="flex-1">
+                    <Pause className="h-5 w-5 mr-2" />
+                    Pausar
+                  </Button>
                 )}
-                {campaignStatus?.totalNumbers && (
-                  <div className="text-white/70 text-xs">
-                    {campaignStatus.completedCalls || 0} de {campaignStatus.totalNumbers} chamadas
-                  </div>
-                )}
+                <Button onClick={onStopCampaign} size="lg" variant="destructive" className="flex-1">
+                  <Square className="h-5 w-5 mr-2" />
+                  Parar
+                </Button>
               </div>
             </CardContent>
           </Card>

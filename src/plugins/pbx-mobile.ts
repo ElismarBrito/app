@@ -76,6 +76,7 @@ export interface CampaignProgress {
   failedCalls: number;
   pendingNumbers: number;
   progressPercentage: number;
+  dialingNumbers: string[];
 }
 
 /**
