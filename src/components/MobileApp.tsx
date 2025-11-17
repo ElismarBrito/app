@@ -170,6 +170,64 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     }
   };
 
+  // Recupera o estado de pareamento do localStorage quando o app inicia
+  useEffect(() => {
+    const restorePairingState = async () => {
+      if (!user) return; // Aguarda autenticação
+
+      try {
+        const savedDeviceId = localStorage.getItem('pbx_device_id');
+        const savedIsPaired = localStorage.getItem('pbx_is_paired') === 'true';
+
+        console.log('🔍 Restaurando estado de pareamento:', {
+          savedDeviceId,
+          savedIsPaired
+        });
+
+        if (savedDeviceId && savedIsPaired) {
+          // Verifica no banco de dados se o dispositivo ainda está pareado
+          const { data: device, error } = await supabase
+            .from('devices')
+            .select('id, status, user_id')
+            .eq('id', savedDeviceId)
+            .eq('user_id', user.id)
+            .single();
+
+          if (error || !device) {
+            console.warn('⚠️ Dispositivo não encontrado no banco de dados:', error);
+            // Limpa o localStorage se o dispositivo não existe mais
+            localStorage.removeItem('pbx_device_id');
+            localStorage.removeItem('pbx_is_paired');
+            return;
+          }
+
+          if (device.status === 'online' || device.status === 'offline') {
+            // Dispositivo ainda está pareado
+            console.log('✅ Dispositivo pareado restaurado:', savedDeviceId);
+            setDeviceId(device.id);
+            setIsPaired(true);
+            setIsConnected(device.status === 'online');
+            
+            toast({
+              title: "Dispositivo reconectado",
+              description: `Pareamento restaurado para ${device.id.slice(0, 8)}...`,
+              variant: "default"
+            });
+          } else {
+            console.warn('⚠️ Dispositivo não está mais pareado');
+            // Limpa o localStorage se o dispositivo foi despareado
+            localStorage.removeItem('pbx_device_id');
+            localStorage.removeItem('pbx_is_paired');
+          }
+        }
+      } catch (error) {
+        console.error('❌ Erro ao restaurar estado de pareamento:', error);
+      }
+    };
+
+    restorePairingState();
+  }, [user]);
+
   useEffect(() => {
     // Automatically fill session code from URL parameters and auto-pair if possible
     const urlParams = new URLSearchParams(window.location.search);
@@ -477,6 +535,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   };
 
   const handleUnpaired = () => {
+    // Limpa o localStorage quando desparear
+    localStorage.removeItem('pbx_device_id');
+    localStorage.removeItem('pbx_is_paired');
+    console.log('🗑️ Estado de pareamento removido do localStorage');
+
     setDeviceId(null);
     setIsConnected(false);
     setIsPaired(false);
@@ -489,6 +552,22 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       description: "O dispositivo foi desconectado do dashboard",
       variant: "default"
     });
+  };
+
+  // Função auxiliar para obter ou criar um device_id persistente
+  const getOrCreateDeviceId = (): string => {
+    // Tenta recuperar um device_id salvo anteriormente
+    const savedDeviceId = localStorage.getItem('pbx_device_id');
+    if (savedDeviceId) {
+      console.log('📱 Usando device_id existente do localStorage:', savedDeviceId);
+      return savedDeviceId;
+    }
+
+    // Se não existir, gera um novo e salva
+    const newDeviceId = crypto.randomUUID();
+    console.log('📱 Gerando novo device_id:', newDeviceId);
+    // Não salva ainda - será salvo apenas quando o pareamento for bem-sucedido
+    return newDeviceId;
   };
 
   const pairDevice = async () => {
@@ -514,8 +593,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     }
 
     try {
+      // Usa device_id existente ou cria um novo
+      const persistentDeviceId = getOrCreateDeviceId();
+
       const devicePayload = {
-        device_id: crypto.randomUUID(),
+        device_id: persistentDeviceId,
         name: deviceName,
         model: deviceInfo.model,
         os: deviceInfo.os,
@@ -553,7 +635,17 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       });
 
       if (response.ok) {
-        setDeviceId(data.device.id);
+        const pairedDeviceId = data.device.id;
+        
+        // Salva o estado de pareamento no localStorage
+        localStorage.setItem('pbx_device_id', pairedDeviceId);
+        localStorage.setItem('pbx_is_paired', 'true');
+        console.log('💾 Estado de pareamento salvo no localStorage:', {
+          deviceId: pairedDeviceId,
+          isPaired: true
+        });
+
+        setDeviceId(pairedDeviceId);
         setIsConnected(true);
         setIsPaired(true);
         toast({
