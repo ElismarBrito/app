@@ -14,6 +14,7 @@ import { useNativeSimDetection } from '@/hooks/useNativeSimDetection';
 import { useQRScanner } from '@/hooks/useQRScanner';
 import { useCallQueue } from '@/hooks/useCallQueue';
 import { useCallAssignments } from '@/hooks/useCallAssignments';
+import { useDeviceCommunication } from '@/hooks/useDeviceCommunication';
 import { CorporateDialer } from '@/components/CorporateDialer';
 import { SimSelector } from '@/components/SimSelector';
 import { CallHistoryManager } from '@/components/CallHistoryManager';
@@ -655,23 +656,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     handleUnpaired();
   };
 
-  // Listen for commands from dashboard
-  useEffect(() => {
-    if (!deviceId || !isConnected) return;
-
-    const subscription = supabase
-      .channel('device-commands')
-      .on('broadcast', { event: 'command' }, (payload) => {
-        if (payload.payload.device_id === deviceId) {
-          handleCommand(payload.payload);
-        }
-      })
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [deviceId, isConnected]);
+  // Listen for commands from dashboard using optimized communication
+  useDeviceCommunication({
+    deviceId: deviceId || null,
+    enabled: !!deviceId && isConnected,
+    onCommand: async (command) => {
+      await handleCommand(command);
+    }
+  });
 
   const handleCommand = async (command: any) => {
     console.log('Comando recebido do dashboard:', JSON.stringify(command, null, 2));

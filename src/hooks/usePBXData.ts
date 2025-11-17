@@ -404,7 +404,7 @@ export const usePBXData = () => {
     }
   }
 
-  // Real-time subscriptions
+  // Real-time subscriptions with optimistic updates
   useEffect(() => {
     if (!user) return
 
@@ -412,7 +412,21 @@ export const usePBXData = () => {
       .channel('devices_channel')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'devices', filter: `user_id=eq.${user.id}` },
-        () => fetchDevices()
+        (payload) => {
+          // Optimistic update: atualiza estado localmente em vez de refetch completo
+          if (payload.eventType === 'UPDATE' && payload.new) {
+            setDevices(prev => prev.map(d => 
+              d.id === payload.new.id ? { ...d, ...payload.new } : d
+            ));
+          } else if (payload.eventType === 'INSERT' && payload.new) {
+            setDevices(prev => [...prev, payload.new as Device]);
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            setDevices(prev => prev.filter(d => d.id !== payload.old.id));
+          } else {
+            // Fallback: refetch completo para outros eventos
+            fetchDevices();
+          }
+        }
       )
       .subscribe()
 
@@ -420,7 +434,20 @@ export const usePBXData = () => {
       .channel('calls_channel')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'calls', filter: `user_id=eq.${user.id}` },
-        () => fetchCalls()
+        (payload) => {
+          // Optimistic update: atualiza estado localmente
+          if (payload.eventType === 'UPDATE' && payload.new) {
+            setCalls(prev => prev.map(c => 
+              c.id === payload.new.id ? { ...c, ...payload.new } : c
+            ));
+          } else if (payload.eventType === 'INSERT' && payload.new) {
+            setCalls(prev => [payload.new as Call, ...prev]);
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            setCalls(prev => prev.filter(c => c.id !== payload.old.id));
+          } else {
+            fetchCalls();
+          }
+        }
       )
       .subscribe()
 
@@ -428,7 +455,20 @@ export const usePBXData = () => {
       .channel('lists_channel')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'number_lists', filter: `user_id=eq.${user.id}` },
-        () => fetchLists()
+        (payload) => {
+          // Optimistic update: atualiza estado localmente
+          if (payload.eventType === 'UPDATE' && payload.new) {
+            setLists(prev => prev.map(l => 
+              l.id === payload.new.id ? { ...l, ...payload.new } : l
+            ));
+          } else if (payload.eventType === 'INSERT' && payload.new) {
+            setLists(prev => [...prev, payload.new as NumberList]);
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            setLists(prev => prev.filter(l => l.id !== payload.old.id));
+          } else {
+            fetchLists();
+          }
+        }
       )
       .subscribe()
 

@@ -110,28 +110,37 @@ const PBXDashboard = () => {
     generateQRCode();
   };
 
-  // Send command to device via Supabase broadcast
+  // Send command to device via optimized communication service
   const sendCommandToDevice = async (deviceId: string, command: string, data: any) => {
     try {
-      const channel = supabase.channel('device-commands');
+      // Importa o serviço de comunicação dinamicamente
+      const { deviceCommunicationService } = await import('@/lib/device-communication');
       
-      await channel.send({
-        type: 'broadcast',
-        event: 'command',
-        payload: {
-          device_id: deviceId,
-          command,
-          data,
-          timestamp: Date.now()
+      const result = await deviceCommunicationService.sendCommand(
+        deviceId,
+        command,
+        data,
+        {
+          timeout: 5000, // 5 segundos de timeout
+          retries: 3 // 3 tentativas
         }
-      });
+      );
 
-      console.log(`Command sent to device ${deviceId}:`, command, data);
-    } catch (error) {
+      if (result.success) {
+        console.log(`✅ Comando ${result.commandId} enviado com sucesso para dispositivo ${deviceId}`);
+      } else {
+        console.error(`❌ Erro ao enviar comando ${result.commandId}:`, result.error);
+        toast({
+          title: "Erro de Comunicação",
+          description: result.error || "Não foi possível enviar comando para o dispositivo",
+          variant: "destructive"
+        });
+      }
+    } catch (error: any) {
       console.error('Error sending command to device:', error);
       toast({
         title: "Erro de Comunicação",
-        description: "Não foi possível enviar comando para o dispositivo",
+        description: error.message || "Não foi possível enviar comando para o dispositivo",
         variant: "destructive"
       });
     }
