@@ -1,0 +1,161 @@
+openapi: 3.0.3
+info:
+  title: PBX Mobile API
+  description: API para comunicação entre Dashboard e Dispositivos Móveis
+  version: 1.0.0
+  contact:
+    name: PBX Mobile Team
+
+servers:
+  - url: https://jovnndvixqymfvnxkbep.supabase.co
+    description: Supabase Production Server
+
+paths:
+  /functions/v1/pair-device:
+    post:
+      summary: Parear dispositivo com dashboard
+      description: Pareia um dispositivo móvel com o dashboard usando código de sessão QR
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - session_code
+                - user_id
+                - device_info
+              properties:
+                session_code:
+                  type: string
+                  description: Código de sessão do QR Code
+                  example: "1763331114470"
+                user_id:
+                  type: string
+                  format: uuid
+                  description: ID do usuário
+                device_info:
+                  type: object
+                  required:
+                    - device_id
+                    - name
+                  properties:
+                    device_id:
+                      type: string
+                      format: uuid
+                      description: ID único do dispositivo
+                    name:
+                      type: string
+                      description: Nome do dispositivo
+                    model:
+                      type: string
+                      description: Modelo do dispositivo
+                    os:
+                      type: string
+                      description: Sistema operacional
+                    os_version:
+                      type: string
+                      description: Versão do SO
+                    sim_type:
+                      type: string
+                      enum: [physical, esim, dual]
+                    has_physical_sim:
+                      type: boolean
+                    has_esim:
+                      type: boolean
+      responses:
+        '200':
+          description: Dispositivo pareado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  device:
+                    $ref: '#/components/schemas/Device'
+                  message:
+                    type: string
+        '400':
+          description: QR Code inválido ou expirado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+
+components:
+  schemas:
+    Device:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+          enum: [online, offline, unpaired, pairing]
+        model:
+          type: string
+        os:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        paired_at:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+
+    Call:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        number:
+          type: string
+        status:
+          type: string
+          enum: [queued, dialing, ringing, answered, completed, busy, failed, no_answer, ended]
+        device_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        start_time:
+          type: string
+          format: date-time
+        duration:
+          type: integer
+        campaign_id:
+          type: string
+          format: uuid
+
+    Command:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        command:
+          type: string
+          enum: [make_call, start_campaign, end_call, answer_call, mute_call]
+        data:
+          type: object
+        timestamp:
+          type: integer
+
