@@ -140,6 +140,15 @@ class MyConnectionService : ConnectionService() {
             // Set address
             setAddress(Uri.parse("tel:$number"), TelecomManager.PRESENTATION_ALLOWED)
             
+            // IMPORTANTE: Passa o callId através dos extras para o MyInCallService conseguir recuperar
+            // Isso permite que o MyInCallService encontre o callId correto quando receber a chamada
+            // Deve ser definido ANTES de setDialing()/setRinging()
+            val extras = Bundle().apply {
+                putString("callId", callId)
+                putBoolean("AUTO_CALL", isAutomated)
+            }
+            putExtras(extras)
+            
             // Start connection sequence - DEIXA O SISTEMA ANDROID GERENCIAR OS ESTADOS
             if (isOutgoing) {
                 setDialing()

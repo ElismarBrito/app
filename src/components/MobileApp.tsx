@@ -191,10 +191,9 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
   // Setup all event listeners on component mount
   useEffect(() => {
-    let handles: PluginListenerHandle[] = [];
     const setup = async () => {
       console.log("Setting up native event listeners...");
-      handles = await Promise.all([
+      const handles = await Promise.all([
         PbxMobile.addListener('callStateChanged', async (event) => {
           console.log('Event: callStateChanged', event);
           if (event.state === 'disconnected') removeFromActive(event.callId);
@@ -218,13 +217,16 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       console.log("Native event listeners set up.");
       // Sync state immediately after setup to avoid race conditions
       updateActiveCalls();
+      return handles;
     };
 
-    setup();
+    const handlesPromise = setup();
 
     return () => {
       console.log("Cleaning up native event listeners...");
-      handles.forEach(handle => handle.remove());
+      handlesPromise.then(handles => {
+        handles.forEach(handle => handle.remove());
+      });
     };
   }, []); // Empty dependency array ensures this runs only once on mount
 
