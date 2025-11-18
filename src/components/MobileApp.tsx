@@ -44,6 +44,79 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   const [activeCalls, setActiveCalls] = useState<CallInfo[]>([]);
   const [selectedSimId, setSelectedSimId] = useState<string>(simCards[0]?.id || 'default-sim');
   const [pendingCall, setPendingCall] = useState<string | null>(null);
+
+  // Função para obter ou criar um deviceId persistente
+  const getOrCreateDeviceId = (): string => {
+    const storageKey = 'pbx_device_id';
+    let storedDeviceId = localStorage.getItem(storageKey);
+    
+    if (!storedDeviceId) {
+      // Gera um novo ID persistente
+      storedDeviceId = crypto.randomUUID();
+      localStorage.setItem(storageKey, storedDeviceId);
+      console.log('📱 Novo deviceId criado e salvo:', storedDeviceId);
+    } else {
+      console.log('📱 DeviceId recuperado do localStorage:', storedDeviceId);
+    }
+    
+    return storedDeviceId;
+  };
+
+  // Recupera o estado de pareamento quando o app inicia
+  useEffect(() => {
+    const restorePairingState = async () => {
+      if (!user) return;
+
+      try {
+        const persistentDeviceId = getOrCreateDeviceId();
+        
+        // Verifica se o dispositivo existe no banco e está pareado
+        const { data: device, error } = await supabase
+          .from('devices')
+          .select('*')
+          .eq('id', persistentDeviceId)
+          .eq('user_id', user.id)
+          .single();
+
+        if (error || !device) {
+          console.log('📱 Dispositivo não encontrado no banco ou não pareado');
+          // Limpa o localStorage se o dispositivo não existe mais
+          if (error?.code === 'PGRST116') {
+            localStorage.removeItem('pbx_device_id');
+            localStorage.removeItem('pbx_is_paired');
+          }
+          return;
+        }
+
+        // Se o dispositivo existe, restaura o pareamento
+        console.log('✅ Pareamento restaurado:', device);
+        setDeviceId(device.id);
+        setIsPaired(true);
+        setIsConnected(true);
+        setIsConfigured(device.status === 'configured' || device.status === 'online');
+        
+        // Atualiza o status para online
+        await supabase
+          .from('devices')
+          .update({
+            status: 'online',
+            last_seen: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', device.id);
+
+        toast({
+          title: "Pareamento restaurado",
+          description: `${device.name || device.model} reconectado`,
+          variant: "default"
+        });
+      } catch (error) {
+        console.error('❌ Erro ao restaurar pareamento:', error);
+      }
+    };
+
+    restorePairingState();
+  }, [user, toast]);
   const [deviceStatus, setDeviceStatus] = useState({
     internet_status: 'good',
     signal_status: 'good',
@@ -248,8 +321,9 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       startHeartbeat();
       
       // Listen for real-time updates on device status
+      // Monitora UPDATE (mudanças de status) e DELETE (exclusão do dispositivo)
       const subscription = supabase
-        .channel('device-status')
+        .channel(`device-status-${deviceId}`)
         .on('postgres_changes', {
           event: 'UPDATE',
           schema: 'public',
@@ -257,8 +331,24 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           filter: `id=eq.${deviceId}`
         }, (payload) => {
           console.log('Device status updated:', payload.new);
-          // Check if device was unpaired from dashboard
-          if (payload.new.status === 'unpaired') {
+          const newStatus = (payload.new as any)?.status;
+          
+          // Detecta quando o dispositivo foi desempareado no dashboard
+          // O dashboard muda o status para 'offline' quando desempareia
+          if (newStatus === 'offline' && isPaired) {
+            console.log('⚠️ Dispositivo foi desempareado no dashboard');
+            handleUnpaired();
+          }
+        })
+        .on('postgres_changes', {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'devices',
+          filter: `id=eq.${deviceId}`
+        }, (payload) => {
+          console.log('⚠️ Dispositivo foi deletado no dashboard:', payload.old);
+          // Se o dispositivo foi deletado, também precisa desparear
+          if (isPaired) {
             handleUnpaired();
           }
         })
@@ -270,7 +360,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     } else {
       stopHeartbeat();
     }
-  }, [deviceId, isPaired, startHeartbeat, stopHeartbeat]);
+  }, [deviceId, isPaired, startHeartbeat, stopHeartbeat, handleUnpaired]);
 
   const requestAllPermissions = async () => {
     try {
@@ -484,6 +574,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     setSessionCode('');
     stopHeartbeat();
     
+    // Remove o pareamento do localStorage
+    localStorage.removeItem('pbx_is_paired');
+    // Mantém o deviceId para permitir repareamento futuro
+    // localStorage.removeItem('pbx_device_id');
+    
     toast({
       title: "Dispositivo despareado",
       description: "O dispositivo foi desconectado do dashboard",
@@ -514,8 +609,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     }
 
     try {
+      // Usa o deviceId persistente ao invés de gerar um novo
+      const persistentDeviceId = getOrCreateDeviceId();
+      
       const devicePayload = {
-        device_id: crypto.randomUUID(),
+        device_id: persistentDeviceId,
         name: deviceName,
         model: deviceInfo.model,
         os: deviceInfo.os,
@@ -556,6 +654,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         setDeviceId(data.device.id);
         setIsConnected(true);
         setIsPaired(true);
+        
+        // Salva o estado de pareamento no localStorage
+        localStorage.setItem('pbx_device_id', data.device.id);
+        localStorage.setItem('pbx_is_paired', 'true');
+        
         toast({
           title: "Sucesso!",
           description: `${deviceInfo.model} pareado com sucesso`,
