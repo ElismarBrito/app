@@ -25,6 +25,58 @@ interface MobileAppProps {
   isStandalone?: boolean;
 }
 
+// Função helper para obter ou criar deviceId persistente (fora do componente para evitar problemas de inicialização)
+const getOrCreateDeviceId = (): string | null => {
+  try {
+    // Verifica se estamos no ambiente do navegador/Capacitor
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const storageKey = 'pbx_device_id';
+    
+    // Verifica se localStorage está disponível
+    if (typeof localStorage === 'undefined') {
+      console.warn('localStorage não disponível, gerando deviceId temporário');
+      return null;
+    }
+    
+    let storedDeviceId: string | null = null;
+    
+    try {
+      storedDeviceId = localStorage.getItem(storageKey);
+    } catch (e) {
+      console.warn('Erro ao acessar localStorage:', e);
+      return null;
+    }
+    
+    if (!storedDeviceId) {
+      // Gera um novo ID persistente
+      try {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+          storedDeviceId = crypto.randomUUID();
+        } else {
+          // Fallback para ambientes sem crypto.randomUUID
+          storedDeviceId = `device-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        }
+        localStorage.setItem(storageKey, storedDeviceId);
+        console.log('📱 Novo deviceId criado e salvo:', storedDeviceId);
+      } catch (e) {
+        console.error('Erro ao salvar deviceId:', e);
+        return null;
+      }
+    } else {
+      console.log('📱 DeviceId recuperado do localStorage:', storedDeviceId);
+    }
+    
+    return storedDeviceId;
+  } catch (error) {
+    console.error('❌ Erro ao obter/criar deviceId:', error);
+    // Retorna null em caso de erro para que o código possa lidar com isso
+    return null;
+  }
+};
+
 export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -45,78 +97,117 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   const [selectedSimId, setSelectedSimId] = useState<string>(simCards[0]?.id || 'default-sim');
   const [pendingCall, setPendingCall] = useState<string | null>(null);
 
-  // Função para obter ou criar um deviceId persistente
-  const getOrCreateDeviceId = (): string => {
-    const storageKey = 'pbx_device_id';
-    let storedDeviceId = localStorage.getItem(storageKey);
-    
-    if (!storedDeviceId) {
-      // Gera um novo ID persistente
-      storedDeviceId = crypto.randomUUID();
-      localStorage.setItem(storageKey, storedDeviceId);
-      console.log('📱 Novo deviceId criado e salvo:', storedDeviceId);
-    } else {
-      console.log('📱 DeviceId recuperado do localStorage:', storedDeviceId);
-    }
-    
-    return storedDeviceId;
-  };
-
   // Recupera o estado de pareamento quando o app inicia
+  // Adiciona delay para garantir que tudo está inicializado
   useEffect(() => {
-    const restorePairingState = async () => {
-      if (!user) return;
+    if (!user) return;
 
-      try {
-        const persistentDeviceId = getOrCreateDeviceId();
-        
-        // Verifica se o dispositivo existe no banco e está pareado
-        const { data: device, error } = await supabase
-          .from('devices')
-          .select('*')
-          .eq('id', persistentDeviceId)
-          .eq('user_id', user.id)
-          .single();
-
-        if (error || !device) {
-          console.log('📱 Dispositivo não encontrado no banco ou não pareado');
-          // Limpa o localStorage se o dispositivo não existe mais
-          if (error?.code === 'PGRST116') {
-            localStorage.removeItem('pbx_device_id');
-            localStorage.removeItem('pbx_is_paired');
+    // Adiciona um pequeno delay para garantir que o app está completamente inicializado
+    const restoreTimeout = setTimeout(() => {
+      const restorePairingState = async () => {
+        try {
+          // Verifica se localStorage está disponível antes de usar
+          if (typeof localStorage === 'undefined') {
+            console.log('📱 localStorage não disponível ainda');
+            return;
           }
-          return;
+
+          const persistentDeviceId = getOrCreateDeviceId();
+          if (!persistentDeviceId) {
+            console.log('📱 Não foi possível obter deviceId persistente');
+            return;
+          }
+          
+          // Verifica se o dispositivo existe no banco e está pareado
+          const { data: device, error } = await supabase
+            .from('devices')
+            .select('*')
+            .eq('id', persistentDeviceId)
+            .eq('user_id', user.id)
+            .single();
+
+          if (error || !device) {
+            console.log('📱 Dispositivo não encontrado no banco ou não pareado');
+            // Limpa o localStorage se o dispositivo não existe mais
+            if (error?.code === 'PGRST116' && typeof localStorage !== 'undefined') {
+              try {
+                localStorage.removeItem('pbx_device_id');
+                localStorage.removeItem('pbx_is_paired');
+              } catch (e) {
+                console.warn('Erro ao limpar localStorage:', e);
+              }
+            }
+            return;
+          }
+
+          // Verifica se o dispositivo foi desconectado no dashboard (status = 'offline')
+          // Se foi desconectado, NÃO restaura o pareamento automaticamente
+          // Verificação case-insensitive para garantir que funciona mesmo com variações de case
+          const deviceStatus = device.status?.toLowerCase()?.trim();
+          if (deviceStatus === 'offline') {
+            console.log('⚠️ Dispositivo foi desconectado no dashboard (status: offline), não restaurando pareamento');
+            // Limpa o localStorage para permitir novo pareamento manual
+            if (typeof localStorage !== 'undefined') {
+              try {
+                localStorage.removeItem('pbx_is_paired');
+                console.log('🧹 localStorage limpo: pbx_is_paired removido');
+                // Mantém o deviceId para permitir repareamento futuro sem novo ID
+              } catch (e) {
+                console.warn('Erro ao limpar localStorage:', e);
+              }
+            }
+            // Não restaura o pareamento - dispositivo deve ser pareado manualmente novamente
+            return;
+          }
+
+          // Se o dispositivo existe e NÃO está offline, restaura o pareamento
+          console.log('✅ Dispositivo encontrado no banco com status:', device.status);
+          console.log('✅ Restaurando pareamento para dispositivo:', device.id);
+          
+          setDeviceId(device.id);
+          setIsPaired(true);
+          setIsConnected(true);
+          
+          // Verifica se está configurado (status deve ser 'configured' ou 'online')
+          const isDeviceConfigured = deviceStatus === 'configured' || deviceStatus === 'online';
+          setIsConfigured(isDeviceConfigured);
+          
+          // Atualiza o status para online apenas se já estava online ou configured
+          // Se estava offline, não atualiza (já retornou acima)
+          if (deviceStatus === 'online' || deviceStatus === 'configured') {
+            console.log('🔄 Atualizando status do dispositivo para online...');
+            supabase
+              .from('devices')
+              .update({
+                status: 'online',
+                last_seen: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', device.id)
+              .then(() => {
+                console.log('✅ Status do dispositivo atualizado para online');
+                // Mostra toast apenas após sucesso
+                if (toast) {
+                  toast({
+                    title: "Pareamento restaurado",
+                    description: `${device.name || device.model} reconectado`,
+                    variant: "default"
+                  });
+                }
+              })
+              .catch(err => console.error('❌ Erro ao atualizar status:', err));
+          }
+        } catch (error) {
+          console.error('❌ Erro ao restaurar pareamento:', error);
+          // Não quebra o app, apenas loga o erro
         }
+      };
 
-        // Se o dispositivo existe, restaura o pareamento
-        console.log('✅ Pareamento restaurado:', device);
-        setDeviceId(device.id);
-        setIsPaired(true);
-        setIsConnected(true);
-        setIsConfigured(device.status === 'configured' || device.status === 'online');
-        
-        // Atualiza o status para online
-        await supabase
-          .from('devices')
-          .update({
-            status: 'online',
-            last_seen: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', device.id);
+      restorePairingState();
+    }, 500); // Delay de 500ms para garantir inicialização completa
 
-        toast({
-          title: "Pareamento restaurado",
-          description: `${device.name || device.model} reconectado`,
-          variant: "default"
-        });
-      } catch (error) {
-        console.error('❌ Erro ao restaurar pareamento:', error);
-      }
-    };
-
-    restorePairingState();
-  }, [user, toast]);
+    return () => clearTimeout(restoreTimeout);
+  }, [user]);
   const [deviceStatus, setDeviceStatus] = useState({
     internet_status: 'good',
     signal_status: 'good',
@@ -316,6 +407,33 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     setDeviceName(deviceInfo.model);
   }, [deviceInfo]);
 
+  // Declare handleUnpaired before it's used in useEffect
+  const handleUnpaired = () => {
+    setDeviceId(null);
+    setIsConnected(false);
+    setIsPaired(false);
+    setIsConfigured(false);
+    setSessionCode('');
+    stopHeartbeat();
+    
+    // Remove o pareamento do localStorage
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('pbx_is_paired');
+        // Mantém o deviceId para permitir repareamento futuro
+        // localStorage.removeItem('pbx_device_id');
+      }
+    } catch (error) {
+      console.error('❌ Erro ao remover do localStorage:', error);
+    }
+    
+    toast({
+      title: "Dispositivo despareado",
+      description: "O dispositivo foi desconectado do dashboard",
+      variant: "default"
+    });
+  };
+
   useEffect(() => {
     if (deviceId && isPaired) {
       startHeartbeat();
@@ -332,11 +450,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         }, (payload) => {
           console.log('Device status updated:', payload.new);
           const newStatus = (payload.new as any)?.status;
+          const newStatusLower = newStatus?.toLowerCase()?.trim();
           
           // Detecta quando o dispositivo foi desempareado no dashboard
           // O dashboard muda o status para 'offline' quando desempareia
-          if (newStatus === 'offline' && isPaired) {
-            console.log('⚠️ Dispositivo foi desempareado no dashboard');
+          // Verificação case-insensitive para garantir que funciona mesmo com variações de case
+          if (newStatusLower === 'offline' && isPaired) {
+            console.log('⚠️ Dispositivo foi desempareado no dashboard (status: offline)');
             handleUnpaired();
           }
         })
@@ -360,7 +480,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     } else {
       stopHeartbeat();
     }
-  }, [deviceId, isPaired, startHeartbeat, stopHeartbeat, handleUnpaired]);
+  }, [deviceId, isPaired, startHeartbeat, stopHeartbeat]);
 
   const requestAllPermissions = async () => {
     try {
@@ -431,6 +551,32 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       console.log('Error getting active calls:', error);
     }
   };
+
+  // Sincroniza dados quando o app volta para foreground
+  useEffect(() => {
+    if (!deviceId || !isPaired) return;
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden && deviceId && isPaired) {
+        // App voltou para foreground - atualiza dados
+        console.log('📱 App voltou para foreground, sincronizando dados...');
+        
+        // Atualiza chamadas ativas
+        updateActiveCalls();
+        
+        // Atualiza last_seen no dispositivo
+        startHeartbeat();
+      }
+      // Quando vai para background, NÃO faz nada - mantém rodando em background
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId, isPaired, startHeartbeat]);
 
   const makeCall = async (number: string) => {
     if (!hasDialerRole) {
@@ -566,26 +712,6 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     }
   };
 
-  const handleUnpaired = () => {
-    setDeviceId(null);
-    setIsConnected(false);
-    setIsPaired(false);
-    setIsConfigured(false);
-    setSessionCode('');
-    stopHeartbeat();
-    
-    // Remove o pareamento do localStorage
-    localStorage.removeItem('pbx_is_paired');
-    // Mantém o deviceId para permitir repareamento futuro
-    // localStorage.removeItem('pbx_device_id');
-    
-    toast({
-      title: "Dispositivo despareado",
-      description: "O dispositivo foi desconectado do dashboard",
-      variant: "default"
-    });
-  };
-
   const pairDevice = async () => {
     // Remove espaços em branco e normaliza o código
     const cleanSessionCode = sessionCode.trim();
@@ -611,6 +737,15 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     try {
       // Usa o deviceId persistente ao invés de gerar um novo
       const persistentDeviceId = getOrCreateDeviceId();
+      
+      if (!persistentDeviceId) {
+        toast({
+          title: "Erro",
+          description: "Não foi possível obter ID do dispositivo",
+          variant: "destructive"
+        });
+        return;
+      }
       
       const devicePayload = {
         device_id: persistentDeviceId,
@@ -656,8 +791,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         setIsPaired(true);
         
         // Salva o estado de pareamento no localStorage
-        localStorage.setItem('pbx_device_id', data.device.id);
-        localStorage.setItem('pbx_is_paired', 'true');
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('pbx_device_id', data.device.id);
+            localStorage.setItem('pbx_is_paired', 'true');
+          }
+        } catch (error) {
+          console.error('❌ Erro ao salvar no localStorage:', error);
+        }
         
         toast({
           title: "Sucesso!",
@@ -758,24 +899,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     handleUnpaired();
   };
 
-  // Listen for commands from dashboard
-  useEffect(() => {
-    if (!deviceId || !isConnected) return;
-
-    const subscription = supabase
-      .channel('device-commands')
-      .on('broadcast', { event: 'command' }, (payload) => {
-        if (payload.payload.device_id === deviceId) {
-          handleCommand(payload.payload);
-        }
-      })
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [deviceId, isConnected]);
-
+  // Declare handleCommand before it's used in useEffect
   const handleCommand = async (command: any) => {
     console.log('Comando recebido do dashboard:', JSON.stringify(command, null, 2));
     
@@ -872,6 +996,24 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         });
     }
   };
+
+  // Listen for commands from dashboard
+  useEffect(() => {
+    if (!deviceId || !isConnected) return;
+
+    const subscription = supabase
+      .channel('device-commands')
+      .on('broadcast', { event: 'command' }, (payload) => {
+        if (payload.payload.device_id === deviceId) {
+          handleCommand(payload.payload);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [deviceId, isConnected, handleCommand]);
 
   const confirmPendingCall = async () => {
     if (pendingCall) {
