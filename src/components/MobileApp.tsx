@@ -14,6 +14,7 @@ import { useNativeSimDetection } from '@/hooks/useNativeSimDetection';
 import { useQRScanner } from '@/hooks/useQRScanner';
 import { useCallQueue } from '@/hooks/useCallQueue';
 import { useCallAssignments } from '@/hooks/useCallAssignments';
+import { useCallStatusSync } from '@/hooks/useCallStatusSync';
 import { CorporateDialer } from '@/components/CorporateDialer';
 import { SimSelector } from '@/components/SimSelector';
 import { CallHistoryManager } from '@/components/CallHistoryManager';
@@ -57,6 +58,16 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
   // Map to track native call IDs to database call IDs
   const callMapRef = useRef<Map<string, string>>(new Map());
+  const startTimesRef = useRef<Map<string, number>>(new Map());
+  
+  // Temporary map to track campaign number -> dbCallId until native callId is available
+  const campaignNumberToDbCallIdRef = useRef<Map<string, string>>(new Map());
+  
+  // Ref to track if dialerCallStateChanged listener is ready
+  const dialerListenerReadyRef = useRef<boolean>(false);
+  
+  // Enable automatic status sync with database
+  useCallStatusSync(callMapRef.current, startTimesRef.current);
   
   // Handle new call assignments from dashboard
   const handleNewCallAssignment = (number: string, callId: string) => {
@@ -193,9 +204,141 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   useEffect(() => {
     const setup = async () => {
       console.log("Setting up native event listeners...");
+      
+      // Registrar dialerCallStateChanged ANTES dos outros para garantir que está pronto
+      const dialerListener = await PbxMobile.addListener('dialerCallStateChanged', async (event: any) => {
+        console.log(`📞 [dialerCallStateChanged] LISTENER ACIONADO - Evento recebido:`, event);
+        
+        try {
+          const eventStr = JSON.stringify(event);
+          console.log(`📞 [dialerCallStateChanged] INÍCIO - Evento: ${eventStr}`);
+          
+          if (!event) {
+            console.error(`❌ [dialerCallStateChanged] Evento vazio ou inválido`);
+            return;
+          }
+          
+          const eventNumber = event.number || null;
+          const eventCallId = event.callId || null;
+          const eventState = event.state || null;
+          
+          console.log(`📞 [dialerCallStateChanged] number=${eventNumber}, callId=${eventCallId}, state=${eventState}`);
+          
+          // Tentar mapear callId nativo -> dbCallId usando o número
+          if (eventNumber && eventCallId && !callMapRef.current.has(eventCallId)) {
+            const dbCallId = campaignNumberToDbCallIdRef.current.get(eventNumber);
+            if (dbCallId) {
+              callMapRef.current.set(eventCallId, dbCallId);
+              console.log(`🔗 [dialerCallStateChanged] Mapeado ${eventCallId} -> ${dbCallId} (${eventNumber})`);
+            } else {
+              console.log(`⚠️ [dialerCallStateChanged] dbCallId não encontrado para número ${eventNumber}`);
+            }
+          }
+          
+          // Atualizar banco de dados diretamente se tiver o dbCallId
+          // Tenta primeiro pelo callId, depois pelo número
+          let dbCallId = eventCallId ? callMapRef.current.get(eventCallId) : null;
+          if (!dbCallId && eventNumber) {
+            // Se não encontrou pelo callId, tenta pelo número (para chamadas de campanha)
+            dbCallId = campaignNumberToDbCallIdRef.current.get(eventNumber);
+            if (dbCallId && eventCallId) {
+              // Se encontrou pelo número, mapeia o callId para uso futuro
+              callMapRef.current.set(eventCallId, dbCallId);
+              console.log(`🔗 [dialerCallStateChanged] Mapeado callId ${eventCallId} -> dbCallId ${dbCallId} via número ${eventNumber}`);
+            }
+          }
+          
+          if (!dbCallId) {
+            console.log(`⚠️ [dialerCallStateChanged] dbCallId não encontrado para callId ${eventCallId} ou número ${eventNumber}`);
+            return;
+          }
+          
+          // Mapear estado nativo para status do banco
+          const statusMap: Record<string, string> = {
+            'DIALING': 'dialing',
+            'RINGING': 'ringing',
+            'ACTIVE': 'answered',
+            'HOLDING': 'holding',
+            'DISCONNECTED': 'ended',
+            'BUSY': 'ended',
+            'FAILED': 'ended',
+            'NO_ANSWER': 'ended',
+            'REJECTED': 'ended',
+            'UNREACHABLE': 'ended',
+            'dialing': 'dialing',
+            'ringing': 'ringing',
+            'active': 'answered',
+            'holding': 'holding',
+            'disconnected': 'ended',
+            'busy': 'ended',
+            'failed': 'ended',
+            'no_answer': 'ended',
+            'rejected': 'ended',
+            'unreachable': 'ended'
+          };
+          
+          const newStatus = statusMap[eventState] || 'ringing';
+          console.log(`📞 [dialerCallStateChanged] Status mapeado: ${eventState} -> ${newStatus}`);
+          
+          // Preparar dados de atualização
+          const updateData: any = {
+            status: newStatus,
+            updated_at: new Date().toISOString()
+          };
+          
+          // Se chamada terminou, calcular duração
+          const isEnded = ['DISCONNECTED', 'BUSY', 'FAILED', 'NO_ANSWER', 'REJECTED', 'UNREACHABLE', 'disconnected', 'busy', 'failed', 'no_answer', 'rejected', 'unreachable', 'ended'].includes(eventState);
+          if (isEnded) {
+            const startTime = startTimesRef.current.get(eventCallId);
+            if (startTime) {
+              const duration = Math.floor((Date.now() - startTime) / 1000);
+              updateData.duration = duration;
+              startTimesRef.current.delete(eventCallId);
+              callMapRef.current.delete(eventCallId);
+              console.log(`📞 [dialerCallStateChanged] Chamada terminada - duração: ${duration}s`);
+            }
+          } else if ((eventState === 'ACTIVE' || eventState === 'active') && !startTimesRef.current.has(eventCallId)) {
+            startTimesRef.current.set(eventCallId, Date.now());
+            console.log(`📞 [dialerCallStateChanged] Tempo de início registrado para ${eventCallId}`);
+          }
+          
+          // Atualizar banco
+          const { error } = await supabase
+            .from('calls')
+            .update(updateData)
+            .eq('id', dbCallId);
+          
+          if (error) {
+            console.error(`❌ [dialerCallStateChanged] Erro ao atualizar chamada ${dbCallId} para ${newStatus}:`, JSON.stringify(error, null, 2));
+          } else {
+            console.log(`✅ [dialerCallStateChanged] Chamada ${dbCallId} atualizada para ${newStatus}${updateData.duration ? ` (duração: ${updateData.duration}s)` : ''}`);
+          }
+        } catch (err: any) {
+          console.error(`❌ [dialerCallStateChanged] Erro ao processar evento:`, JSON.stringify(err, null, 2));
+        }
+      });
+      console.log(`✅ [dialerCallStateChanged] Listener registrado com sucesso! Handle:`, dialerListener);
+      
+      // Marcar listener como pronto após um pequeno delay para garantir que o Capacitor o reconheceu
+      dialerListenerReadyRef.current = true;
+      console.log(`✅ [dialerCallStateChanged] Listener marcado como pronto!`);
+      
       const handles = await Promise.all([
         PbxMobile.addListener('callStateChanged', async (event) => {
           console.log('Event: callStateChanged', event);
+          
+          // Try to map native callId to database callId if not already mapped
+          // This is needed for campaign calls where we create DB records before native calls
+          if (!callMapRef.current.has(event.callId) && event.number) {
+            const dbCallId = campaignNumberToDbCallIdRef.current.get(event.number);
+            if (dbCallId) {
+              callMapRef.current.set(event.callId, dbCallId);
+              console.log(`🔗 Mapeado callId nativo ${event.callId} -> dbCallId ${dbCallId} para número ${event.number}`);
+              // Remove from temporary map once mapped
+              campaignNumberToDbCallIdRef.current.delete(event.number);
+            }
+          }
+          
           if (event.state === 'disconnected') removeFromActive(event.callId);
           updateActiveCalls();
         }),
@@ -214,6 +357,9 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           toast({ title: "Campanha Finalizada", description: `Foram realizadas ${summary.totalAttempts} tentativas.` });
         })
       ]);
+      
+      // Incluir o dialerListener no array de handles para cleanup
+      handles.push(dialerListener);
       console.log("Native event listeners set up.");
       // Sync state immediately after setup to avoid race conditions
       updateActiveCalls();
@@ -689,20 +835,142 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         
       case 'start_campaign':
         console.log('Processando comando start_campaign:', command.data);
+        
+        // Verificar se o listener está pronto antes de iniciar a campanha
+        if (!dialerListenerReadyRef.current) {
+          console.warn(`⚠️ [start_campaign] Listener dialerCallStateChanged ainda não está pronto! Aguardando...`);
+          // Aguardar um pouco para garantir que o listener está pronto
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        console.log(`✅ [start_campaign] Listener dialerCallStateChanged está pronto: ${dialerListenerReadyRef.current}`);
+        
         if (command.data.list && command.data.list.numbers) {
           try {
             setCampaignName(command.data.listName);
+            
+            // Clear previous campaign mappings
+            campaignNumberToDbCallIdRef.current.clear();
+            
+            // Create database records for each number BEFORE starting the campaign
+            const numbersToCall: string[] = command.data.list.numbers;
+            const sessionId = `campaign_${Date.now()}`;
+            
+            console.log(`📝 Criando ${numbersToCall.length} registros no banco antes de iniciar campanha...`);
+            
+            // Verificar autenticação antes de inserir
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError) {
+              console.error('❌ Erro ao verificar sessão:', sessionError);
+              toast({ title: "Erro de Autenticação", description: "Não foi possível verificar a sessão", variant: "destructive" });
+              return;
+            }
+            if (!session || !session.user) {
+              console.error('❌ Nenhuma sessão ativa encontrada');
+              toast({ title: "Erro de Autenticação", description: "Usuário não autenticado", variant: "destructive" });
+              return;
+            }
+            
+            console.log(`✅ Sessão ativa encontrada - User ID: ${session.user.id}`);
+            console.log(`✅ User do hook: ${user?.id}`);
+            console.log(`✅ Device ID: ${deviceId}`);
+            
+            if (session.user.id !== user?.id) {
+              console.warn(`⚠️ ATENÇÃO: auth.uid() (${session.user.id}) !== user.id (${user?.id})`);
+            }
+            
+            for (const number of numbersToCall) {
+              try {
+                console.log(`📤 Tentando inserir chamada no banco para ${number}...`);
+                const insertData = {
+                  user_id: session.user.id, // Usar o ID da sessão para garantir correspondência com auth.uid()
+                  device_id: deviceId!,
+                  number: number,
+                  status: 'queued',
+                  campaign_id: command.data.listId,
+                  session_id: sessionId,
+                  start_time: new Date().toISOString()
+                };
+                console.log(`📤 Dados para inserção:`, JSON.stringify(insertData, null, 2));
+                
+                const { data: dbCall, error: dbError } = await supabase
+                  .from('calls')
+                  .insert(insertData)
+                  .select()
+                  .single();
+
+                if (dbError) {
+                  // Log detalhado do erro - TODOS como strings para evitar [object Object]
+                  const errorMsg = String(dbError.message || 'Sem mensagem');
+                  const errorDetails = String(dbError.details || 'Sem detalhes');
+                  const errorHint = String(dbError.hint || 'Sem hint');
+                  const errorCode = String(dbError.code || 'Sem código');
+                  
+                  console.error(`❌ Erro ao criar registro para ${number}`);
+                  console.error(`  Mensagem: ${errorMsg}`);
+                  console.error(`  Detalhes: ${errorDetails}`);
+                  console.error(`  Hint: ${errorHint}`);
+                  console.error(`  Código: ${errorCode}`);
+                  
+                  // Tentar serializar o erro completo como JSON
+                  try {
+                    const errorJson = JSON.stringify({
+                      message: errorMsg,
+                      details: errorDetails,
+                      hint: errorHint,
+                      code: errorCode,
+                      raw: dbError
+                    }, null, 2);
+                    console.error(`  Erro JSON: ${errorJson}`);
+                  } catch (e) {
+                    console.error(`  Erro ao serializar: ${String(e)}`);
+                  }
+                  
+                  continue; // Skip this number but continue with others
+                }
+
+                if (!dbCall) {
+                  console.error(`❌ Registro criado mas sem dados retornados para ${number}`);
+                  continue;
+                }
+
+                // Store number -> dbCallId mapping for later use
+                campaignNumberToDbCallIdRef.current.set(number, dbCall.id);
+                console.log(`✅ Registro criado: ${number} -> ${dbCall.id}`);
+              } catch (err: any) {
+                const errorDetails = {
+                  message: err?.message,
+                  stack: err?.stack,
+                  name: err?.name,
+                  cause: err?.cause
+                };
+                console.error(`❌ Erro ao criar registro para ${number}:`, JSON.stringify(errorDetails, null, 2));
+                console.error(`❌ Erro completo:`, JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+              }
+            }
+
+            // Now start the native campaign
             await PbxMobile.startCampaign({
-              numbers: command.data.list.numbers,
+              numbers: numbersToCall,
               deviceId: deviceId!,
               listId: command.data.listId,
               listName: command.data.listName,
               simId: selectedSimId
             });
+            
             setCampaignSummary(null); // Clear previous summary
-            toast({ title: "Campanha Iniciada", description: `Iniciando chamadas para ${command.data.list.numbers.length} números.` });
-          } catch (error) {
-            console.error('Error starting campaign:', error);
+            toast({ 
+              title: "Campanha Iniciada", 
+              description: `Iniciando chamadas para ${numbersToCall.length} números. ${campaignNumberToDbCallIdRef.current.size} registros criados no banco.` 
+            });
+          } catch (error: any) {
+            const errorDetails = {
+              message: error?.message,
+              stack: error?.stack,
+              name: error?.name,
+              cause: error?.cause
+            };
+            console.error('❌ Erro ao iniciar campanha:', JSON.stringify(errorDetails, null, 2));
+            console.error('❌ Erro completo:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
             toast({ title: "Erro na Campanha", description: "Não foi possível iniciar a campanha", variant: "destructive" });
           }
         } else {
