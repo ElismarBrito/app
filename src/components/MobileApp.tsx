@@ -176,26 +176,28 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           // Se estava offline, não atualiza (já retornou acima)
           if (deviceStatus === 'online' || deviceStatus === 'configured') {
             console.log('🔄 Atualizando status do dispositivo para online...');
-            supabase
-              .from('devices')
-              .update({
-                status: 'online',
-                last_seen: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', device.id)
-              .then(() => {
-                console.log('✅ Status do dispositivo atualizado para online');
-                // Mostra toast apenas após sucesso
-                if (toast) {
-                  toast({
-                    title: "Pareamento restaurado",
-                    description: `${device.name || device.model} reconectado`,
-                    variant: "default"
-                  });
-                }
-              })
-              .catch(err => console.error('❌ Erro ao atualizar status:', err));
+            try {
+              await supabase
+                .from('devices')
+                .update({
+                  status: 'online',
+                  last_seen: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', device.id);
+              
+              console.log('✅ Status do dispositivo atualizado para online');
+              // Mostra toast apenas após sucesso
+              if (toast) {
+                toast({
+                  title: "Pareamento restaurado",
+                  description: `${device.name || device.model} reconectado`,
+                  variant: "default"
+                });
+              }
+            } catch (err) {
+              console.error('❌ Erro ao atualizar status:', err);
+            }
           }
         } catch (error) {
           console.error('❌ Erro ao restaurar pareamento:', error);
@@ -774,21 +776,6 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     }
   };
 
-  const handleUnpaired = () => {
-    setDeviceId(null);
-    setIsConnected(false);
-    setIsPaired(false);
-    setIsConfigured(false);
-    setSessionCode('');
-    stopHeartbeat();
-    
-    toast({
-      title: "Dispositivo despareado",
-      description: "O dispositivo foi desconectado do dashboard",
-      variant: "default"
-    });
-  };
-
   const pairDevice = async (codeOverride?: string) => {
     // Remove espaços em branco e normaliza o código
     // CORREÇÃO: Permite passar código diretamente para evitar race condition
@@ -1291,7 +1278,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                       onChange={(e) => setSessionCode(e.target.value)}
                     />
                   </div>
-                  <Button onClick={pairDevice} className="w-full" disabled={!sessionCode.trim()}>
+                  <Button onClick={() => pairDevice()} className="w-full" disabled={!sessionCode.trim()}>
                     Parear Dispositivo
                   </Button>
                 </div>
