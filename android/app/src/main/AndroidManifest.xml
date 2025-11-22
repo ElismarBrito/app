@@ -24,6 +24,10 @@
     <uses-permission android:name="android.permission.BIND_INCALL_SERVICE" />
     <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
     
+    <!-- Foreground Service permission (Android 14+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    
     <application
         android:name=".MainApplication"
         android:allowBackup="true"
@@ -98,6 +102,13 @@
             <meta-data android:name="android.telecom.IN_CALL_SERVICE_UI"
                        android:value="true" />
         </service>
+        
+        <!-- Foreground Service para manter campanha ativa -->
+        <service
+            android:name=".CampaignForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall" />
         
         <provider
             android:name="androidx.core.content.FileProvider"

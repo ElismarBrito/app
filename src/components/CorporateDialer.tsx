@@ -56,6 +56,13 @@ export const CorporateDialer = ({
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isCampaignPaused, setIsCampaignPaused] = useState(false);
 
+  // Monitora mudanças em activeCalls para garantir renderização
+  useEffect(() => {
+    if (activeCalls.length > 0) {
+      console.log('📱 CorporateDialer - Chamadas ativas:', activeCalls.length);
+    }
+  }, [activeCalls]);
+
   const dialpadNumbers = [
     ['1', '2', '3'],
     ['4', '5', '6'],
@@ -156,16 +163,54 @@ export const CorporateDialer = ({
                 </div>
               </div>
 
-              {campaignProgress.dialingNumbers && campaignProgress.dialingNumbers.length > 0 && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Discando para:</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {campaignProgress.dialingNumbers.map(num => (
-                      <Badge key={num} variant="secondary">{num}</Badge>
+              {/* CORREÇÃO: Mostra cada ligação em tempo real com estado detalhado */}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Ligações em Andamento:</p>
+                {activeCalls.length > 0 ? (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {/* CORREÇÃO: Ordena por startTime (mais recente primeiro) para aparecer na ordem correta */}
+                    {activeCalls
+                      .sort((a, b) => (b.startTime || 0) - (a.startTime || 0))
+                      .map(call => (
+                      <div key={call.callId} className="flex items-center justify-between p-2 bg-muted/50 rounded border">
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">{call.number}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <div className={`w-2 h-2 rounded-full ${
+                              call.state === 'active' ? 'bg-green-500 animate-pulse' : 
+                              call.state === 'dialing' ? 'bg-yellow-500 animate-pulse' : 
+                              call.state === 'ringing' ? 'bg-blue-500 animate-pulse' : 
+                              'bg-gray-400'
+                            }`} />
+                            <p className="text-xs text-muted-foreground capitalize">
+                              {call.state === 'dialing' ? 'Discando...' :
+                               call.state === 'active' ? 'Conectada' :
+                               call.state === 'ringing' ? 'Tocando' :
+                               call.state === 'held' ? 'Em espera' : call.state}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => onEndCall(call.callId)}
+                          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                        >
+                          <PhoneOff className="h-4 w-4" />
+                        </Button>
+                      </div>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : campaignProgress.dialingNumbers && campaignProgress.dialingNumbers.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {campaignProgress.dialingNumbers.map(num => (
+                      <Badge key={num} variant="secondary" className="animate-pulse">{num}</Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">Aguardando próxima ligação...</p>
+                )}
+              </div>
 
               <div className="flex gap-2 justify-center">
                 {isCampaignPaused ? (
@@ -188,7 +233,7 @@ export const CorporateDialer = ({
           </Card>
         )}
 
-        {/* Chamadas ativas */}
+        {/* Chamadas ativas - Mostra sempre que há chamadas, mesmo durante campanha */}
         {activeCalls.length > 0 && (
           <Card className="bg-white/10 backdrop-blur-sm border-white/20">
             <CardHeader className="pb-2">
@@ -198,7 +243,9 @@ export const CorporateDialer = ({
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {activeCalls.map(call => (
+              {activeCalls
+                .sort((a, b) => (b.startTime || 0) - (a.startTime || 0))
+                .map(call => (
                 <div key={call.callId} className="flex items-center justify-between bg-white/5 rounded p-2">
                   <div className="text-white text-sm">
                     <p className="font-medium">{call.number}</p>

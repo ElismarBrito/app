@@ -371,6 +371,8 @@ const PBXDashboard = () => {
         break;
       case 'update':
         if (data) {
+          // CORREÇÃO: Aguarda a atualização ser concluída
+          // O toast já é exibido pela função updateNumberList
           await updateNumberList(listId, data.name, data.numbers, data.ddiPrefix);
         }
         break;
