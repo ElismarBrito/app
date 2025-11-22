@@ -31,7 +31,7 @@ class MyInCallService : InCallService() {
         val callId = extractCallId(call)
         val phoneNumber = call.details?.handle?.schemeSpecificPart ?: "Unknown"
         
-        Log.d(TAG, "Call added: $callId for number: $phoneNumber")
+        Log.d(TAG, "📞✅ Call added: $callId for number: $phoneNumber (state: ${call.state})")
         
         val wrapper = CallWrapper(call, callId, phoneNumber)
         activeCalls[callId] = wrapper
@@ -41,10 +41,17 @@ class MyInCallService : InCallService() {
         
         // Initial state notification
         val state = mapCallState(call.state)
+        Log.d(TAG, "📞 Notificando estado inicial: $callId -> $state")
         ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, state, phoneNumber)
         
-        // Update active calls list
+        // CORREÇÃO: Atualiza lista de chamadas ativas IMEDIATAMENTE quando uma chamada é adicionada
+        // Isso garante que o box apareça desde o primeiro segundo
         updateActiveCallsList()
+        
+        // CORREÇÃO: Força uma segunda atualização após um pequeno delay para garantir que o estado foi propagado
+        handler.postDelayed({
+            updateActiveCallsList()
+        }, 100)
     }
 
     override fun onCallRemoved(call: Call) {
@@ -66,15 +73,18 @@ class MyInCallService : InCallService() {
     }
     
     fun getActiveCalls(): List<Map<String, Any>> {
-        return activeCalls.values.map { wrapper ->
-            mapOf(
-                "callId" to wrapper.callId,
-                "number" to wrapper.phoneNumber,
-                "state" to mapCallState(wrapper.call.state),
-                "isConference" to wrapper.call.details.hasProperty(Call.Details.PROPERTY_CONFERENCE),
-                "startTime" to (wrapper.call.details?.creationTimeMillis ?: 0L)
-            )
-        }
+        // CORREÇÃO: Ordena por startTime (mais recente primeiro) para aparecer na ordem correta
+        return activeCalls.values
+            .sortedByDescending { it.call.details?.creationTimeMillis ?: 0L }
+            .map { wrapper ->
+                mapOf(
+                    "callId" to wrapper.callId,
+                    "number" to wrapper.phoneNumber,
+                    "state" to mapCallState(wrapper.call.state),
+                    "isConference" to wrapper.call.details.hasProperty(Call.Details.PROPERTY_CONFERENCE),
+                    "startTime" to (wrapper.call.details?.creationTimeMillis ?: 0L)
+                )
+            }
     }
     
     fun endCall(callId: String): Boolean {
@@ -174,18 +184,19 @@ class MyInCallService : InCallService() {
     }
     
     private fun mapCallState(state: Int): String {
+        // CORREÇÃO: Usa minúsculas para corresponder ao tipo CallInfo
         return when (state) {
-            Call.STATE_NEW -> "NEW"
-            Call.STATE_DIALING -> "DIALING"
-            Call.STATE_RINGING -> "RINGING"
-            Call.STATE_HOLDING -> "HELD"
-            Call.STATE_ACTIVE -> "ACTIVE"
-            Call.STATE_DISCONNECTED -> "DISCONNECTED"
-            Call.STATE_SELECT_PHONE_ACCOUNT -> "SELECT_ACCOUNT"
-            Call.STATE_CONNECTING -> "CONNECTING"
-            Call.STATE_DISCONNECTING -> "DISCONNECTING"
-            Call.STATE_PULLING_CALL -> "PULLING"
-            else -> "UNKNOWN"
+            Call.STATE_NEW -> "dialing"
+            Call.STATE_DIALING -> "dialing"
+            Call.STATE_RINGING -> "ringing"
+            Call.STATE_HOLDING -> "held"
+            Call.STATE_ACTIVE -> "active"
+            Call.STATE_DISCONNECTED -> "disconnected"
+            Call.STATE_SELECT_PHONE_ACCOUNT -> "dialing"
+            Call.STATE_CONNECTING -> "dialing"
+            Call.STATE_DISCONNECTING -> "disconnected"
+            Call.STATE_PULLING_CALL -> "dialing"
+            else -> "disconnected"
         }
     }
     
@@ -193,10 +204,14 @@ class MyInCallService : InCallService() {
         handler.post {
             try {
                 val callsList = getActiveCalls()
+                Log.d(TAG, "📞 Atualizando lista de chamadas ativas: ${callsList.size} chamadas")
+                callsList.forEach { call ->
+                    Log.d(TAG, "  - CallId: ${call["callId"]}, Number: ${call["number"]}, State: ${call["state"]}")
+                }
                 ServiceRegistry.getPlugin()?.updateActiveCalls(callsList)
-                Log.d(TAG, "Updated active calls list: ${callsList.size} calls")
+                Log.d(TAG, "✅ Lista de chamadas ativas enviada para o frontend")
             } catch (e: Exception) {
-                Log.e(TAG, "Error updating active calls list", e)
+                Log.e(TAG, "❌ Erro ao atualizar lista de chamadas ativas", e)
             }
         }
     }

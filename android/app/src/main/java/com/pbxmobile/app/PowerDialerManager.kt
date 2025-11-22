@@ -1,6 +1,7 @@
 package com.pbxmobile.app
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.telecom.Call
@@ -204,6 +205,9 @@ class PowerDialerManager(private val context: Context) {
         Log.d(TAG, "🚀 Campanha iniciada: $sessionId com ${numbers.size} números")
         Log.d(TAG, "📊 Config: POOL DE $maxConcurrentCalls CHAMADAS SIMULTÂNEAS, $maxRetries retries")
         
+        // CORREÇÃO: Inicia ForegroundService para manter app ativo quando tela desliga
+        startForegroundService(listName, sessionId)
+        
         // Inicia o sistema de manutenção do pool de chamadas
         startPoolMaintenance()
         
@@ -253,14 +257,15 @@ class PowerDialerManager(private val context: Context) {
                 val availableSlots = maxConcurrentCalls - trulyActiveCalls
                 
                 // Se há slots disponíveis e números para ligar, inicia novas chamadas
-                if (availableSlots > 0) {
+                // CORREÇÃO: Limita ao número de números disponíveis para evitar tentar fazer mais chamadas do que números
+                if (availableSlots > 0 && campaign.shuffledNumbers.isNotEmpty()) {
                     val numbersToDial = minOf(
                         availableSlots,
                         campaign.shuffledNumbers.size
                     )
                     
                     if (numbersToDial > 0) {
-                        Log.d(TAG, "📞 Preenchendo pool: $trulyActiveCalls/$maxConcurrentCalls ativas, iniciando $numbersToDial nova(s)")
+                        Log.d(TAG, "📞 Preenchendo pool: $trulyActiveCalls/$maxConcurrentCalls ativas, iniciando $numbersToDial nova(s) de ${campaign.shuffledNumbers.size} disponíveis")
                         
                         repeat(numbersToDial) {
                             if (campaign.shuffledNumbers.isNotEmpty()) {
@@ -276,14 +281,15 @@ class PowerDialerManager(private val context: Context) {
                     }
                 }
                 
-                // Tentativa periódica de conferência: se houver pelo menos duas chamadas ativas/holding,
-                // tenta unir (evita perder o timing em que conferenceableCalls fica disponível)
-                runCatching {
-                    val activeOrHolding = activeCalls.values.count { it.state == CallState.ACTIVE || it.state == CallState.HOLDING }
-                    if (activeOrHolding >= 2) {
-                        tryMergeCalls()
-                    }
-                }
+                // CORREÇÃO: Desabilitada tentativa automática de conferência
+                // Muitos chips não suportam conferência e isso causa erros
+                // A conferência só deve ser feita manualmente pelo usuário se o chip suportar
+                // runCatching {
+                //     val activeOrHolding = activeCalls.values.count { it.state == CallState.ACTIVE || it.state == CallState.HOLDING }
+                //     if (activeOrHolding >= 2) {
+                //         tryMergeCalls()
+                //     }
+                // }
                 
                 // Se iniciamos chamadas neste tick, evitamos concluir a campanha agora.
                 // Damos um passo de espera para que activeCalls seja contabilizada no próximo ciclo.
@@ -293,20 +299,33 @@ class PowerDialerManager(private val context: Context) {
                     continue
                 }
                 
-                // Verifica se a campanha terminou (somente se não iniciamos chamadas neste tick)
-                val hasPendingNumbers = campaign.shuffledNumbers.isNotEmpty() || pendingRetries.get() > 0
-                val hasActiveCalls = trulyActiveCalls > 0
+                // CORREÇÃO: A campanha só encerra quando explicitamente parada pelo usuário no dashboard
+                // Não encerra automaticamente, continua ligando até ser encerrada manualmente
+                // Isso permite que o usuário tenha controle total sobre quando parar a campanha
                 
-                if (!hasPendingNumbers && !hasActiveCalls) {
-                    Log.d(TAG, "✅ Campanha concluída: todos os números processados e nenhuma chamada ativa")
-                    campaign.isActive = false
+                // Verifica se a campanha foi explicitamente desativada (stopCampaign foi chamado)
+                if (!campaign.isActive) {
+                    Log.d(TAG, "🛑 Campanha encerrada pelo usuário")
                     isMaintainingPool = false
                     generateCampaignSummary(campaign)
                     break
                 }
                 
+                // Se não há números na fila e não há chamadas ativas, aguarda um pouco
+                // antes de verificar novamente (pode estar aguardando retry ou novas chamadas)
+                val hasPendingNumbers = campaign.shuffledNumbers.isNotEmpty() || pendingRetries.get() > 0
+                val hasActiveCalls = trulyActiveCalls > 0
+                
+                if (!hasPendingNumbers && !hasActiveCalls) {
+                    Log.d(TAG, "⏳ Aguardando: sem números na fila e sem chamadas ativas. Campanha continua ativa até ser encerrada manualmente.")
+                }
+                
                 // Notifica progresso
                 notifyProgress()
+                
+                // CORREÇÃO: Atualiza lista de chamadas ativas periodicamente para UI
+                // Isso garante que o dashboard sempre tenha informações atualizadas
+                updateActiveCallsInUI()
                 
                 // Aguarda antes de verificar novamente
                 delay(poolCheckInterval)
@@ -370,8 +389,46 @@ class PowerDialerManager(private val context: Context) {
             
             Log.d(TAG, "🛑 Campanha parada: ${campaign.sessionId}")
             
+            // CORREÇÃO: Para o ForegroundService quando campanha é encerrada
+            stopForegroundService()
+            
             // Gera sumário final
             generateCampaignSummary(campaign)
+        }
+    }
+    
+    /**
+     * Inicia o ForegroundService para manter o app ativo
+     */
+    private fun startForegroundService(campaignName: String, sessionId: String) {
+        try {
+            val intent = Intent(context, CampaignForegroundService::class.java).apply {
+                putExtra("campaignName", campaignName)
+                putExtra("sessionId", sessionId)
+            }
+            
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+            
+            Log.d(TAG, "✅ ForegroundService iniciado para campanha: $campaignName")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Erro ao iniciar ForegroundService: ${e.message}")
+        }
+    }
+    
+    /**
+     * Para o ForegroundService
+     */
+    private fun stopForegroundService() {
+        try {
+            val intent = Intent(context, CampaignForegroundService::class.java)
+            context.stopService(intent)
+            Log.d(TAG, "✅ ForegroundService parado")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Erro ao parar ForegroundService: ${e.message}")
         }
     }
     
@@ -425,6 +482,10 @@ class PowerDialerManager(private val context: Context) {
             
             activeCalls[callId] = activeCall
             
+            // CORREÇÃO: Atualiza UI imediatamente quando inicia a chamada
+            // Isso garante que as chamadas apareçam desde o primeiro segundo
+            updateActiveCallsInUI()
+            
             // Faz a chamada usando TelecomManager
             telecomManager.placeCall(uri, extras.apply {
                 campaign.phoneAccountHandle?.let { 
@@ -441,6 +502,26 @@ class PowerDialerManager(private val context: Context) {
             Log.e(TAG, "❌ Erro ao discar $number: ${e.message}", e)
             handleCallFailure(callId, number, attemptNumber, "Erro: ${e.message}")
         }
+    }
+    
+    /**
+     * Verifica se a operadora/chip suporta conferência
+     * Retorna true se pelo menos uma chamada ativa tem capacidade de gerenciar conferência
+     */
+    fun hasConferenceSupport(): Boolean {
+        val calls = activeCalls.values.mapNotNull { it.call }
+            .filter { it.state == Call.STATE_ACTIVE || it.state == Call.STATE_HOLDING }
+        
+        if (calls.isEmpty()) {
+            return false
+        }
+        
+        val hasSupport = calls.any { call ->
+            call.details.can(Call.Details.CAPABILITY_MANAGE_CONFERENCE)
+        }
+        
+        Log.d(TAG, "🔍 Verificação de suporte a conferência: ${if (hasSupport) "SIM" else "NÃO"} (${calls.size} chamadas ativas)")
+        return hasSupport
     }
     
     /**
@@ -603,12 +684,13 @@ class PowerDialerManager(private val context: Context) {
             }
             CallState.ACTIVE -> {
                 Log.d(TAG, "✅ Chamada atendida: ${activeCall.number}")
-                // Ao ganhar ACTIVE, tenta unir com outras ativas para formar conferência
-                tryMergeCalls()
+                // CORREÇÃO: Desabilitada tentativa automática de conferência
+                // A conferência só deve ser feita manualmente pelo usuário se o chip suportar
+                // tryMergeCalls()
             }
             CallState.HOLDING -> {
-                // Ao entrar em HOLDING, também tenta unir em conferência (caso a outra esteja ACTIVE)
-                tryMergeCalls()
+                // CORREÇÃO: Desabilitada tentativa automática de conferência
+                // tryMergeCalls()
             }
             else -> {
                 // Chamada ainda em progresso (DIALING, RINGING, etc.)
@@ -811,6 +893,41 @@ class PowerDialerManager(private val context: Context) {
     }
     
     // ==================== NOTIFICAÇÕES ====================
+    
+    /**
+     * Atualiza a lista de chamadas ativas no UI
+     * CORREÇÃO: Garante que o dashboard sempre tenha informações atualizadas
+     * Usa as chamadas do PowerDialerManager (que são atualizadas imediatamente)
+     * em vez de esperar pelo MyInCallService
+     */
+    private fun updateActiveCallsInUI() {
+        try {
+            // CORREÇÃO: Usa as chamadas do PowerDialerManager diretamente
+            // Isso garante que apareçam desde o primeiro segundo
+            val callsList = activeCalls.values.map { activeCall ->
+                mapOf(
+                    "callId" to activeCall.callId,
+                    "number" to activeCall.number,
+                    // CORREÇÃO: Usa minúsculas para corresponder ao tipo CallInfo
+                    "state" to when (activeCall.state) {
+                        CallState.DIALING -> "dialing"
+                        CallState.RINGING -> "ringing"
+                        CallState.ACTIVE -> "active"
+                        CallState.HOLDING -> "held"
+                        CallState.DISCONNECTED -> "disconnected"
+                        else -> "disconnected"
+                    },
+                    "isConference" to false,
+                    "startTime" to activeCall.startTime
+                )
+            }
+            
+            // Atualiza via plugin para notificar o frontend
+            com.pbxmobile.app.ServiceRegistry.getPlugin()?.updateActiveCalls(callsList)
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ Erro ao atualizar chamadas ativas no UI: ${e.message}")
+        }
+    }
     
     /**
      * Notifica progresso da campanha

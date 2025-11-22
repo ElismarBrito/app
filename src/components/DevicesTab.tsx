@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Smartphone, Wifi, WifiOff, MoreVertical, Trash2, RefreshCw, Phone, PhoneCall, List, QrCode } from 'lucide-react';
+import { Smartphone, Wifi, WifiOff, MoreVertical, Trash2, RefreshCw, Phone, PhoneCall, List, QrCode, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -218,6 +218,16 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
                       {activeLists.length === 0 && (
                         <span className="ml-2 text-xs text-muted-foreground">(sem listas ativas)</span>
                       )}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={() => {
+                        sendCommandToDevice(device.id, {
+                          command: 'stop_campaign'
+                        });
+                      }}
+                    >
+                      <Square className="w-4 h-4 mr-2" />
+                      Encerrar Campanha
                     </DropdownMenuItem>
                   </>
                 )}

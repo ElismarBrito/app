@@ -432,6 +432,17 @@ class PbxMobilePlugin : Plugin() {
         call.resolve()
     }
     
+    @PluginMethod
+    fun hasConferenceSupport(call: PluginCall) {
+        try {
+            val hasSupport = powerDialerManager.hasConferenceSupport()
+            call.resolve(JSObject().put("hasSupport", hasSupport))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking conference support", e)
+            call.reject("Failed to check conference support: ${e.message}")
+        }
+    }
+    
     // Event notification methods for services
     fun notifyCallStateChanged(callId: String, state: String, number: String) {
         val data = JSObject().apply {

@@ -121,12 +121,15 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
       .map(num => num.trim())
       .filter(num => num.length > 0);
 
+    // CORREÇÃO: Chama a ação de atualização (que agora é assíncrona no PBXDashboard)
     onListAction(editingList.id, 'update', {
       name: newListName,
       numbers: numbers,
       ddiPrefix: newListDDI || undefined
     });
 
+    // Limpa os campos e fecha o diálogo
+    // A atualização será refletida via real-time subscription do Supabase
     setNewListName('');
     setNewListNumbers('');
     setNewListDDI('');

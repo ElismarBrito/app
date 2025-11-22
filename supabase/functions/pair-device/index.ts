@@ -18,9 +18,54 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { session_code, user_id, device_info } = await req.json();
+    // Tentar fazer parse do JSON com tratamento de erro
+    let requestBody;
+    try {
+      requestBody = await req.json();
+    } catch (jsonError) {
+      console.error('Erro ao fazer parse do JSON da requisição:', jsonError);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Erro ao processar dados da requisição. Verifique se o formato JSON está correto.' 
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    const { session_code, user_id, device_info } = requestBody;
 
     console.log('Pareamento iniciado:', { session_code, user_id, device_info });
+
+    // Validar dados obrigatórios
+    if (!session_code || !user_id || !device_info) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Dados incompletos: session_code, user_id e device_info são obrigatórios' 
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    if (!device_info.device_id) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'device_info.device_id é obrigatório' 
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
 
     // 1. Validar se a sessão QR existe e é válida
     const { data: session, error: sessionError } = await supabase
@@ -30,13 +75,28 @@ serve(async (req) => {
       .eq('user_id', user_id)
       .eq('used', false)
       .gt('expires_at', new Date().toISOString())
-      .single();
+      .maybeSingle();
 
-    if (sessionError || !session) {
+    if (sessionError) {
+      console.error('Erro ao buscar sessão QR:', sessionError);
+      const errorMsg = sessionError.message || sessionError.code || 'Erro desconhecido ao buscar sessão';
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: 'QR Code inválido ou expirado' 
+          error: `Erro ao validar QR Code: ${errorMsg}` 
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    if (!session) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'QR Code inválido ou expirado. Gere um novo QR Code no dashboard.' 
         }),
         { 
           status: 400,
@@ -51,7 +111,7 @@ serve(async (req) => {
       .select('*')
       .eq('id', device_info.device_id)
       .eq('user_id', user_id)
-      .single();
+      .maybeSingle();
 
     let device;
 
@@ -75,7 +135,32 @@ serve(async (req) => {
         .select()
         .single();
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('Erro ao atualizar dispositivo:', updateError);
+        const errorMsg = updateError.message || updateError.code || updateError.hint || 'Erro desconhecido';
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: `Erro ao atualizar dispositivo: ${errorMsg}` 
+          }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+      if (!updatedDevice) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Dispositivo não foi atualizado corretamente' 
+          }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
       device = updatedDevice;
     } else {
       // Criar novo dispositivo
@@ -98,15 +183,45 @@ serve(async (req) => {
         .select()
         .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error('Erro ao criar dispositivo:', insertError);
+        const errorMsg = insertError.message || insertError.code || insertError.hint || 'Erro desconhecido';
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: `Erro ao criar dispositivo: ${errorMsg}` 
+          }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+      if (!newDevice) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Dispositivo não foi criado corretamente' 
+          }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
       device = newDevice;
     }
 
     // 3. Marcar sessão QR como usada
-    await supabase
+    const { error: markUsedError } = await supabase
       .from('qr_sessions')
       .update({ used: true })
       .eq('id', session.id);
+    
+    if (markUsedError) {
+      console.error('Erro ao marcar sessão como usada:', markUsedError);
+      // Não falha o pareamento se isso der erro, apenas loga
+    }
 
     // 4. Retornar dados do dispositivo pareado
     return new Response(
@@ -122,10 +237,11 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Erro no pareamento:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: 'Erro interno do servidor' 
+        error: errorMessage || 'Erro interno do servidor' 
       }),
       { 
         status: 500,
