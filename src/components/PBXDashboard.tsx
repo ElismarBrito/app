@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Phone, PhoneCall, Users, Server, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +20,7 @@ import { supabase } from '@/integrations/supabase/client';
 const PBXDashboard = () => {
   const { user, signOut } = useAuth();
   const { toast } = useToast();
+  const cleanupDoneRef = useRef<Set<string>>(new Set());
   
   const {
     devices,
@@ -37,6 +38,9 @@ const PBXDashboard = () => {
     updateNumberList,
     toggleListStatus,
     deleteNumberList,
+    fetchOnlineDevices,
+    fetchActiveCalls,
+    fetchActiveLists,
     refetch
   } = usePBXData();
 
@@ -199,6 +203,118 @@ const PBXDashboard = () => {
       }
     }
 
+    // Handle "End All" action
+    if (callId === 'all' && action === 'end') {
+      const now = Date.now();
+      const fiveMinutesAgo = now - (5 * 60 * 1000); // 5 minutos
+      
+      // Filtra apenas chamadas realmente ativas (não encerradas E criadas recentemente)
+      // Chamadas muito antigas provavelmente já foram encerradas mas não atualizaram o status
+      const activeCalls = calls.filter(c => {
+        if (c.status === 'ended') return false;
+        
+        const callStartTime = new Date(c.start_time).getTime();
+        const callAge = now - callStartTime;
+        
+        // Se a chamada está "ringing" há mais de 5 minutos, provavelmente já foi encerrada
+        if (c.status === 'ringing' && callAge > fiveMinutesAgo) {
+          return false;
+        }
+        
+        // Se a chamada está "answered" há mais de 2 horas, provavelmente já foi encerrada
+        if (c.status === 'answered' && callAge > (2 * 60 * 60 * 1000)) {
+          return false;
+        }
+        
+        return true;
+      });
+      
+      console.log(`Encerrando ${activeCalls.length} chamadas ativas (filtradas de ${calls.filter(c => c.status !== 'ended').length} total)`);
+      
+      if (activeCalls.length === 0) {
+        // Se havia chamadas mas foram filtradas, atualiza o status delas para 'ended'
+        const staleCalls = calls.filter(c => {
+          if (c.status === 'ended') return false;
+          const callStartTime = new Date(c.start_time).getTime();
+          const callAge = now - callStartTime;
+          return (c.status === 'ringing' && callAge > fiveMinutesAgo) || 
+                 (c.status === 'answered' && callAge > (2 * 60 * 60 * 1000));
+        });
+        
+        if (staleCalls.length > 0) {
+          // Atualiza chamadas antigas para 'ended' sem tentar encerrar no dispositivo
+          for (const staleCall of staleCalls) {
+            const duration = Math.floor((now - new Date(staleCall.start_time).getTime()) / 1000);
+            await updateCallStatus(staleCall.id, 'ended', duration);
+          }
+          
+          toast({
+            title: "Chamadas antigas atualizadas",
+            description: `${staleCalls.length} chamada(s) antiga(s) foram marcadas como encerradas`
+          });
+        } else {
+          toast({
+            title: "Nenhuma chamada ativa",
+            description: "Não há chamadas para encerrar",
+            variant: "default"
+          });
+        }
+        return;
+      }
+      
+      let successCount = 0;
+      let errorCount = 0;
+      let skippedCount = 0;
+      
+      for (const activeCall of activeCalls) {
+        try {
+          const callStartTime = new Date(activeCall.start_time).getTime();
+          const callAge = now - callStartTime;
+          
+          // Pula chamadas muito antigas (já devem ter sido encerradas)
+          if ((activeCall.status === 'ringing' && callAge > fiveMinutesAgo) ||
+              (activeCall.status === 'answered' && callAge > (2 * 60 * 60 * 1000))) {
+            skippedCount++;
+            // Marca como encerrada sem tentar encerrar no dispositivo
+            const duration = Math.floor(callAge / 1000);
+            await updateCallStatus(activeCall.id, 'ended', duration);
+            continue;
+          }
+          
+          const duration = Math.floor(callAge / 1000);
+          await updateCallStatus(activeCall.id, 'ended', duration);
+          
+          // Send command to device to end call
+          if (activeCall.device_id) {
+            await sendCommandToDevice(activeCall.device_id, 'end_call', { callId: activeCall.id });
+          }
+          
+          successCount++;
+        } catch (error) {
+          console.error(`Erro ao encerrar chamada ${activeCall.id}:`, error);
+          errorCount++;
+        }
+      }
+      
+      let message = '';
+      if (successCount > 0) {
+        message = `${successCount} chamada(s) encerrada(s)`;
+      }
+      if (skippedCount > 0) {
+        message += message ? `, ${skippedCount} atualizada(s) como encerrada(s)` : `${skippedCount} chamada(s) antiga(s) atualizada(s)`;
+      }
+      if (errorCount > 0) {
+        message += message ? `, ${errorCount} erro(s)` : `${errorCount} erro(s)`;
+      }
+      
+      toast({
+        title: successCount > 0 ? "Chamadas processadas" : "Chamadas atualizadas",
+        description: message || "Nenhuma chamada processada",
+        variant: errorCount > 0 ? "destructive" : "default"
+      });
+      return;
+    }
+
     const call = calls.find(c => c.id === callId);
     
     switch (action) {
@@ -244,9 +360,9 @@ const PBXDashboard = () => {
             });
             break;
           case 'all':
-            // End all active calls
-            const activeCalls = calls.filter(c => c.status !== 'ended');
-            for (const activeCall of activeCalls) {
+            // End all active calls - OTIMIZADO: usa fetchActiveCalls
+            const activeCallsOptimized = await fetchActiveCalls();
+            for (const activeCall of activeCallsOptimized) {
               const callDuration = Math.floor((Date.now() - new Date(activeCall.start_time).getTime()) / 1000);
               await updateCallStatus(activeCall.id, 'ended', callDuration);
               // Send command to each device
@@ -256,7 +372,7 @@ const PBXDashboard = () => {
             }
             toast({
               title: "Todas as chamadas encerradas",
-              description: `${activeCalls.length} chamadas foram encerradas`
+              description: `${activeCallsOptimized.length} chamadas foram encerradas`
             });
             break;
           case 'mute':
@@ -388,6 +504,49 @@ const PBXDashboard = () => {
     pairedAt: device.paired_at,
     lastSeen: device.last_seen || undefined
   }));
+
+  // Clean up stale calls (calls that are probably already ended but status wasn't updated)
+  // Executa periodicamente para limpar chamadas antigas
+  useEffect(() => {
+    if (!calls.length || loading) return;
+    
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      const fiveMinutesAgo = now - (5 * 60 * 1000);
+      const twoHoursAgo = now - (2 * 60 * 60 * 1000);
+      
+      const staleCalls = calls.filter(c => {
+        if (c.status === 'ended') return false;
+        if (cleanupDoneRef.current.has(c.id)) return false; // Já foi processada
+        
+        const callStartTime = new Date(c.start_time).getTime();
+        const callAge = now - callStartTime;
+        
+        // Chamadas "ringing" há mais de 5 minutos provavelmente já foram encerradas
+        if (c.status === 'ringing' && callAge > fiveMinutesAgo) {
+          return true;
+        }
+        
+        // Chamadas "answered" há mais de 2 horas provavelmente já foram encerradas
+        if (c.status === 'answered' && callAge > twoHoursAgo) {
+          return true;
+        }
+        
+        return false;
+      });
+      
+      // Atualiza chamadas antigas em lote (sem mostrar toast para não poluir)
+      if (staleCalls.length > 0) {
+        staleCalls.forEach(async (staleCall) => {
+          cleanupDoneRef.current.add(staleCall.id);
+          const duration = Math.floor((now - new Date(staleCall.start_time).getTime()) / 1000);
+          await updateCallStatus(staleCall.id, 'ended', duration);
+        });
+      }
+    }, 10000); // Executa a cada 10 segundos
+    
+    return () => clearInterval(cleanupInterval);
+  }, [calls.length, loading, updateCallStatus]);
 
   const formattedCalls = calls.map(call => {
     const device = devices.find(d => d.id === call.device_id);

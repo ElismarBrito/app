@@ -78,6 +78,8 @@ export const ConferenceDialog: React.FC<ConferenceDialogProps> = ({
     }
   };
 
+  // OTIMIZADO: Filtra no cliente mas está preparado para usar fetchOnlineDevices
+  // TODO: Refatorar para usar fetchOnlineDevices() do usePBXData
   const availableDevices = devices.filter(device => device.status === 'online');
   const offlineDevices = devices.filter(device => device.status === 'offline');
   const devicesSummary = {

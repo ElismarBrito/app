@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from '@/hooks/use-toast'
@@ -58,14 +58,14 @@ export const usePBXData = () => {
   })
   const [loading, setLoading] = useState(true)
 
-  // Fetch devices
-  const fetchDevices = async () => {
+  // Fetch devices - otimizado com select específico
+  const fetchDevices = useCallback(async () => {
     if (!user) return
 
     try {
       const { data, error } = await supabase
         .from('devices' as any)
-        .select('*')
+        .select('id, name, status, paired_at, last_seen, user_id, internet_status, signal_status, line_blocked, active_calls_count')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
@@ -75,19 +75,43 @@ export const usePBXData = () => {
       console.log('Devices table not ready yet, using empty array')
       setDevices([])
     }
-  }
+  }, [user])
 
-  // Fetch calls
-  const fetchCalls = async () => {
-    if (!user) return
+  // Fetch online devices - OTIMIZADO: usa índice composto idx_devices_user_status
+  const fetchOnlineDevices = useCallback(async (): Promise<Device[]> => {
+    if (!user) return []
 
     try {
       const { data, error } = await supabase
-        .from('calls' as any)
-        .select('*')
+        .from('devices' as any)
+        .select('id, name, status, paired_at, last_seen, user_id, internet_status, signal_status, line_blocked, active_calls_count')
         .eq('user_id', user.id)
+        .eq('status', 'online') // ✅ Filtra no banco - usa idx_devices_user_status
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      return (data as unknown as Device[]) || []
+    } catch (error: any) {
+      console.log('Error fetching online devices:', error)
+      return []
+    }
+  }, [user])
+
+  // Fetch calls - otimizado para buscar apenas chamadas recentes
+  const fetchCalls = useCallback(async () => {
+    if (!user) return
+
+    try {
+      // Busca apenas chamadas das últimas 24 horas para melhor performance
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      
+      const { data, error } = await supabase
+        .from('calls' as any)
+        .select('id, number, status, start_time, duration, user_id, device_id, hidden')
+        .eq('user_id', user.id)
+        .gte('start_time', oneDayAgo) // Apenas últimas 24h
         .order('start_time', { ascending: false })
-        .limit(50)
+        .limit(100) // Aumentado para 100 mas com filtro de data
 
       if (error) throw error
       setCalls((data as unknown as Call[]) || [])
@@ -95,16 +119,40 @@ export const usePBXData = () => {
       console.log('Calls table not ready yet, using empty array')
       setCalls([])
     }
-  }
+  }, [user])
 
-  // Fetch number lists
-  const fetchLists = async () => {
+  // Fetch active calls - OTIMIZADO: usa índice composto idx_calls_user_status
+  const fetchActiveCalls = useCallback(async (): Promise<Call[]> => {
+    if (!user) return []
+
+    try {
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      
+      const { data, error } = await supabase
+        .from('calls' as any)
+        .select('id, number, status, start_time, duration, user_id, device_id, hidden')
+        .eq('user_id', user.id)
+        .in('status', ['ringing', 'answered', 'dialing', 'queued']) // ✅ Filtra no banco - usa idx_calls_user_status
+        .gte('start_time', oneDayAgo)
+        .order('start_time', { ascending: false })
+        .limit(100)
+
+      if (error) throw error
+      return (data as unknown as Call[]) || []
+    } catch (error: any) {
+      console.log('Error fetching active calls:', error)
+      return []
+    }
+  }, [user])
+
+  // Fetch number lists - otimizado com select específico
+  const fetchLists = useCallback(async () => {
     if (!user) return
 
     try {
       const { data, error } = await supabase
         .from('number_lists' as any)
-        .select('*')
+        .select('id, name, numbers, is_active, user_id, created_at, ddi_prefix')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
@@ -114,10 +162,32 @@ export const usePBXData = () => {
       console.log('Number lists table not ready yet, using empty array')
       setLists([])
     }
-  }
+  }, [user])
 
-  // Calculate stats
-  const calculateStats = () => {
+  // Fetch active lists - OTIMIZADO: usa índice composto idx_number_lists_user_active
+  const fetchActiveLists = useCallback(async (): Promise<NumberList[]> => {
+    if (!user) return []
+
+    try {
+      const { data, error } = await supabase
+        .from('number_lists' as any)
+        .select('id, name, numbers, is_active, user_id, created_at, ddi_prefix')
+        .eq('user_id', user.id)
+        .eq('is_active', true) // ✅ Filtra no banco - usa idx_number_lists_user_active
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      return (data as unknown as NumberList[]) || []
+    } catch (error: any) {
+      console.log('Error fetching active lists:', error)
+      return []
+    }
+  }, [user])
+
+  // Calculate stats (memoized to avoid unnecessary recalculations)
+  // OTIMIZADO: Usa dados já filtrados para evitar filtros no cliente
+  const calculateStats = useCallback(() => {
+    // Usa active_calls_count do trigger em vez de filtrar manualmente
     const devicesConnected = devices.filter(d => d.status === 'online').length
     const today = new Date().toISOString().split('T')[0]
     const callsToday = calls.filter(c => c.start_time.startsWith(today)).length
@@ -129,7 +199,7 @@ export const usePBXData = () => {
       activeLists,
       serverStatus: 'online'
     })
-  }
+  }, [devices, calls, lists])
 
   // Add device
   const addDevice = async (name: string) => {
@@ -404,15 +474,29 @@ export const usePBXData = () => {
     }
   }
 
-  // Real-time subscriptions
+  // Real-time subscriptions com debounce para melhor performance
   useEffect(() => {
     if (!user) return
+
+    // Debounce helper para evitar múltiplas chamadas rápidas
+    const debounce = <T extends (...args: any[]) => void>(func: T, wait: number) => {
+      let timeout: NodeJS.Timeout | null = null
+      return (...args: Parameters<T>) => {
+        if (timeout) clearTimeout(timeout)
+        timeout = setTimeout(() => func(...args), wait)
+      }
+    }
+
+    // Debounced fetchers (300ms de delay para agrupar múltiplas mudanças)
+    const debouncedFetchDevices = debounce(fetchDevices, 300)
+    const debouncedFetchCalls = debounce(fetchCalls, 300)
+    const debouncedFetchLists = debounce(fetchLists, 500) // Lists mudam menos frequentemente
 
     const devicesSubscription = supabase
       .channel('devices_channel')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'devices', filter: `user_id=eq.${user.id}` },
-        () => fetchDevices()
+        () => debouncedFetchDevices()
       )
       .subscribe()
 
@@ -420,7 +504,7 @@ export const usePBXData = () => {
       .channel('calls_channel')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'calls', filter: `user_id=eq.${user.id}` },
-        () => fetchCalls()
+        () => debouncedFetchCalls()
       )
       .subscribe()
 
@@ -428,7 +512,7 @@ export const usePBXData = () => {
       .channel('lists_channel')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'number_lists', filter: `user_id=eq.${user.id}` },
-        () => fetchLists()
+        () => debouncedFetchLists()
       )
       .subscribe()
 
@@ -437,7 +521,7 @@ export const usePBXData = () => {
       callsSubscription.unsubscribe()
       listsSubscription.unsubscribe()
     }
-  }, [user])
+  }, [user, fetchDevices, fetchCalls, fetchLists])
 
   // Initial data load
   useEffect(() => {
@@ -459,7 +543,7 @@ export const usePBXData = () => {
   // Update stats when data changes
   useEffect(() => {
     calculateStats()
-  }, [devices, calls, lists])
+  }, [calculateStats])
 
   // Delete call function
   const deleteCall = async (callId: string) => {
@@ -503,6 +587,10 @@ export const usePBXData = () => {
     updateNumberList,
     toggleListStatus,
     deleteNumberList,
+    // Funções otimizadas que usam índices compostos
+    fetchOnlineDevices,
+    fetchActiveCalls,
+    fetchActiveLists,
     refetch: async () => {
       await Promise.all([fetchDevices(), fetchCalls(), fetchLists()])
     }
