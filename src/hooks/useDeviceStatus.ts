@@ -29,10 +29,26 @@ export const useDeviceStatus = (deviceId: string) => {
   }
 
   // Atualizar status para offline (chamado apenas quando necessário)
+  // CORREÇÃO: Não atualiza se status já for 'unpaired' (despareamento intencional)
   const setOffline = async () => {
     if (!user || !deviceId || !isOnlineRef.current) return
 
     try {
+      // Verificar status atual antes de mudar para offline
+      const { data: currentDevice } = await supabase
+        .from('devices')
+        .select('status')
+        .eq('id', deviceId)
+        .eq('user_id', user.id)
+        .single()
+      
+      // Se já está 'unpaired', não fazer nada (foi despareamento intencional)
+      if (currentDevice?.status === 'unpaired') {
+        console.log('Dispositivo já está unpaired, não mudando para offline')
+        isOnlineRef.current = false
+        return
+      }
+      
       await supabase
         .from('devices')
         .update({
@@ -51,10 +67,27 @@ export const useDeviceStatus = (deviceId: string) => {
   }
 
   // Detectar quando o app vai para background/foreground
-  const handleVisibilityChange = () => {
+  // CORREÇÃO: Não desconecta quando tela apaga, apenas atualiza last_seen
+  const handleVisibilityChange = async () => {
     if (document.hidden) {
-      setOffline()
+      // Tela apagada: apenas atualiza last_seen, NÃO muda status para offline
+      if (user && deviceId) {
+        try {
+          await supabase
+            .from('devices')
+            .update({
+              last_seen: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', deviceId)
+            .eq('user_id', user.id)
+          console.log('Tela apagada: last_seen atualizado (status mantido)')
+        } catch (error) {
+          console.error('Erro ao atualizar last_seen:', error)
+        }
+      }
     } else {
+      // Tela ligou novamente: marcar como online
       setOnline()
     }
   }

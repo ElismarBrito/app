@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { NewCallDialog } from './dialogs/NewCallDialog';
 import { ConferenceDialog } from './dialogs/ConferenceDialog';
 import { useDeviceValidation } from '@/hooks/useDeviceValidation';
+import { useDeviceHeartbeat } from '@/hooks/useDeviceHeartbeat';
 import { supabase } from '@/integrations/supabase/client';
 
 const PBXDashboard = () => {
@@ -47,6 +48,27 @@ const PBXDashboard = () => {
   // Initialize device validation with correct interface
   useDeviceValidation(devices, (deviceId: string, updates: Partial<Device>) => {
     updateDeviceStatus(deviceId, updates);
+  });
+
+  // PROFISSIONAL: Heartbeat bidirecional (ping/pong) - Verificação ativa de dispositivos
+  useDeviceHeartbeat({
+    devices,
+    onDeviceInactive: async (deviceId) => {
+      console.log(`⚠️ Dispositivo ${deviceId} inativo (sem resposta a ping/pong e sem heartbeat)`)
+      // Marcar como offline usando a função do banco (mais confiável)
+      try {
+        // Usar a função do banco para marcar dispositivos inativos
+        const { data, error } = await supabase.rpc('mark_inactive_devices_offline')
+        if (error) throw error
+        
+        // Recarregar dispositivos para refletir mudanças
+        await refetch()
+      } catch (error) {
+        console.error('Erro ao marcar dispositivo inativo:', error)
+        // Fallback: marcar manualmente
+        await updateDeviceStatus(deviceId, { status: 'offline' })
+      }
+    }
   });
 
   const [wsConnected, setWsConnected] = useState(true);
@@ -144,20 +166,25 @@ const PBXDashboard = () => {
   const handleDeviceAction = async (deviceId: string, action: string) => {
     // Handle bulk action
     if (deviceId === 'all' && action === 'refresh') {
-      toast({ title: "Atualizando todos os dispositivos..." });
-      for (const device of devices) {
-        await updateDeviceStatus(device.id, { status: 'online', last_seen: new Date().toISOString() });
-      }
-      toast({ title: "Dispositivos atualizados" });
+      toast({ title: "Atualizando dados do banco..." });
+      // CORREÇÃO: Recarregar dados do banco usando índices compostos, não forçar status
+      await refetch();
+      toast({ title: "Dados atualizados do banco" });
       return;
     }
 
     switch (action) {
       case 'refresh':
-        await updateDeviceStatus(deviceId, { status: 'online', last_seen: new Date().toISOString() });
+        // CORREÇÃO: Recarregar dados do banco usando índices, mostrar estado REAL do dispositivo
+        toast({ title: "Atualizando dados do banco..." });
+        await refetch(); // Recarrega todos os dados usando fetchDevices() que usa índices
+        toast({ title: "Dados atualizados do banco" });
         break;
       case 'unpair':
-        await updateDeviceStatus(deviceId, { status: 'offline' });
+        // Marcar como unpaired para que o app mobile detecte a desconexão
+        await updateDeviceStatus(deviceId, { status: 'unpaired' });
+        // Também enviar comando via broadcast para garantir
+        await sendCommandToDevice(deviceId, 'unpair', {});
         break;
       case 'delete':
         await removeDevice(deviceId);
@@ -497,13 +524,82 @@ const PBXDashboard = () => {
   };
 
   // Convert database format to component format
-  const formattedDevices = devices.map(device => ({
-    id: device.id,
-    name: device.name,
-    status: device.status,
-    pairedAt: device.paired_at,
-    lastSeen: device.last_seen || undefined
-  }));
+  // CORREÇÃO: Filtros adicionais para garantir estado real dos dispositivos
+  const now = Date.now()
+  const fiveMinutesAgo = now - (5 * 60 * 1000)
+  
+  const formattedDevices = devices
+    .filter(device => {
+      // 1. Remove dispositivos 'unpaired'
+      if (device.status === 'unpaired') {
+        console.log(`🗑️ Removendo dispositivo 'unpaired': ${device.name} (${device.id})`)
+        return false
+      }
+      
+      // 2. Remove dispositivos 'online' inativos (sem heartbeat há mais de 5 minutos)
+      if (device.status === 'online') {
+        if (!device.last_seen) {
+          console.log(`⚠️ Dispositivo 'online' sem last_seen, considerando inativo: ${device.name}`)
+          return false
+        }
+        const lastSeenTime = new Date(device.last_seen).getTime()
+        const timeSinceLastSeen = now - lastSeenTime
+        if (timeSinceLastSeen > fiveMinutesAgo) {
+          console.log(`⚠️ Dispositivo 'online' inativo (last_seen há ${Math.round(timeSinceLastSeen / 60000)} minutos): ${device.name}`)
+          return false // Não mostrar até ser marcado como 'offline' no banco
+        }
+      }
+      
+      return true
+    })
+    .map(device => ({
+      id: device.id,
+      name: device.name,
+      status: device.status,
+      pairedAt: device.paired_at,
+      lastSeen: device.last_seen || undefined
+    }));
+
+  // CORREÇÃO: Detectar dispositivos inativos (desinstalados ou sem heartbeat)
+  // Verifica dispositivos com last_seen muito antigo e marca como offline
+  useEffect(() => {
+    if (!devices.length || loading) return;
+    
+    const checkInactiveDevices = setInterval(() => {
+      const now = Date.now();
+      const fiveMinutesAgo = new Date(now - (5 * 60 * 1000)).toISOString(); // 5 minutos sem heartbeat
+      
+      // Dispositivos online que não atualizaram last_seen há mais de 5 minutos
+      const inactiveDevices = devices.filter(device => {
+        if (device.status !== 'online') return false;
+        if (!device.last_seen) return true; // Se não tem last_seen, considerar inativo
+        
+        const lastSeenTime = new Date(device.last_seen).getTime();
+        const timeSinceLastSeen = now - lastSeenTime;
+        
+        // Se passou mais de 5 minutos sem atualização, considerar inativo
+        return timeSinceLastSeen > (5 * 60 * 1000);
+      });
+      
+      // Marcar dispositivos inativos como offline
+      if (inactiveDevices.length > 0) {
+        console.log(`⚠️ Detectados ${inactiveDevices.length} dispositivos inativos (sem heartbeat há mais de 5 minutos)`)
+        inactiveDevices.forEach(async (device) => {
+          try {
+            await updateDeviceStatus(device.id, { 
+              status: 'offline',
+              last_seen: device.last_seen || new Date().toISOString()
+            });
+            console.log(`📱 Dispositivo ${device.name} marcado como offline (inativo)`)
+          } catch (error) {
+            console.error(`Erro ao marcar dispositivo ${device.id} como offline:`, error)
+          }
+        });
+      }
+    }, 30000); // Verifica a cada 30 segundos
+    
+    return () => clearInterval(checkInactiveDevices);
+  }, [devices, loading, updateDeviceStatus]);
 
   // Clean up stale calls (calls that are probably already ended but status wasn't updated)
   // Executa periodicamente para limpar chamadas antigas

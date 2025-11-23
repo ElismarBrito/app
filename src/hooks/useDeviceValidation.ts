@@ -1,10 +1,20 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { Device } from './usePBXData';
 
 export const useDeviceValidation = (devices: Device[], updateDeviceStatus: (deviceId: string, updates: Partial<Device>) => void) => {
   const { user } = useAuth();
+  
+  // CORREÇÃO: Usa refs para evitar recriações desnecessárias
+  const devicesRef = useRef(devices);
+  const updateDeviceStatusRef = useRef(updateDeviceStatus);
+  
+  // Atualiza refs quando mudam
+  useEffect(() => {
+    devicesRef.current = devices;
+    updateDeviceStatusRef.current = updateDeviceStatus;
+  }, [devices, updateDeviceStatus]);
 
   // Simulate device validation checks
   const validateDevice = useCallback(async (device: Device) => {
@@ -38,8 +48,8 @@ export const useDeviceValidation = (devices: Device[], updateDeviceStatus: (devi
         return;
       }
 
-      // Update local state
-      updateDeviceStatus(device.id, {
+      // Update local state usando ref
+      updateDeviceStatusRef.current(device.id, {
         internet_status: internetStatus,
         signal_status: signalStatus,
         line_blocked: lineBlocked
@@ -49,38 +59,40 @@ export const useDeviceValidation = (devices: Device[], updateDeviceStatus: (devi
       // Silently log validation errors as these are background operations
       console.log('Device validation failed (background operation):', error);
     }
-  }, [user?.id, updateDeviceStatus]);
+  }, [user?.id]);
 
-  // Validate all online devices periodically
+  // Validate all online devices periodically - usa ref para evitar recriações
   const validateAllDevices = useCallback(async () => {
-    const onlineDevices = devices.filter(device => device.status === 'online');
+    const onlineDevices = devicesRef.current.filter(device => device.status === 'online');
     
     for (const device of onlineDevices) {
       await validateDevice(device);
       // Add small delay between validations to avoid overwhelming
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-  }, [devices, validateDevice]);
+  }, [validateDevice]);
 
-  // Set up real-time validation
+  // Set up real-time validation - CORRIGIDO: não recria quando devices muda
   useEffect(() => {
-    if (!user || devices.length === 0) return;
+    if (!user?.id) return;
 
-    // Initial validation
-    validateAllDevices();
+    // Initial validation apenas uma vez
+    const initialTimeout = setTimeout(() => {
+      validateAllDevices();
+    }, 2000); // Delay inicial de 2 segundos para evitar validação imediata
 
     // Set up periodic validation every 30 seconds
     const interval = setInterval(validateAllDevices, 30000);
 
     // Listen for device status changes
     const channel = supabase
-      .channel('device-validation')
+      .channel(`device-validation-${user.id}`) // Canal único por usuário
       .on('presence', { event: 'sync' }, () => {
         console.log('Device validation sync established');
       })
       .on('broadcast', { event: 'validate-device' }, (payload) => {
         if (payload.userId === user.id && payload.deviceId) {
-          const device = devices.find(d => d.id === payload.deviceId);
+          const device = devicesRef.current.find(d => d.id === payload.deviceId);
           if (device) {
             validateDevice(device);
           }
@@ -89,18 +101,19 @@ export const useDeviceValidation = (devices: Device[], updateDeviceStatus: (devi
       .subscribe();
 
     return () => {
+      clearTimeout(initialTimeout);
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, [user, devices, validateAllDevices, validateDevice]);
+  }, [user?.id, validateAllDevices, validateDevice]); // ✅ Removido 'devices' e 'validateAllDevices' das dependências
 
   // Function to manually trigger validation for a specific device
   const triggerDeviceValidation = useCallback((deviceId: string) => {
-    const device = devices.find(d => d.id === deviceId);
+    const device = devicesRef.current.find(d => d.id === deviceId);
     if (device) {
       validateDevice(device);
     }
-  }, [devices, validateDevice]);
+  }, [validateDevice]);
 
   // Function to send validation command to mobile device
   const requestDeviceValidation = useCallback(async (deviceId: string) => {
