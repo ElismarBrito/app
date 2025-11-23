@@ -16,9 +16,11 @@ import { useCallQueue } from '@/hooks/useCallQueue';
 import { useCallAssignments } from '@/hooks/useCallAssignments';
 import { useCallStatusSync } from '@/hooks/useCallStatusSync';
 import { CorporateDialer } from '@/components/CorporateDialer';
+import { ModernDialer } from '@/components/ModernDialer';
 import { SimSelector } from '@/components/SimSelector';
 import { CallHistoryManager } from '@/components/CallHistoryManager';
-import { Smartphone, Wifi, WifiOff, Phone, PhoneOff, Settings, Play, Square, CreditCard, Pause, SkipForward } from 'lucide-react';
+import { Smartphone, Wifi, WifiOff, Phone, PhoneOff, Settings, Play, Square, CreditCard, Pause, SkipForward, LayoutGrid, LayoutList } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import PbxMobile from '@/plugins/pbx-mobile';
 import type { CallInfo, SimCardInfo, CampaignProgress, CampaignSummary, PluginListenerHandle } from '@/plugins/pbx-mobile';
 
@@ -55,6 +57,9 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   const [campaignProgress, setCampaignProgress] = useState<CampaignProgress | null>(null);
   const [campaignSummary, setCampaignSummary] = useState<CampaignSummary | null>(null);
   const [campaignName, setCampaignName] = useState<string>('');
+  
+  // Estado para alternar entre views do discador
+  const [useModernView, setUseModernView] = useState<boolean>(false);
 
   // Map to track native call IDs to database call IDs
   const callMapRef = useRef<Map<string, string>>(new Map());
@@ -1637,26 +1642,61 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     );
     
     if (shouldShowDialer) {
+      const dialerProps = {
+        deviceName,
+        selectedSim: {
+          id: selectedSim.id,
+          name: selectedSim.displayName,
+          operator: selectedSim.carrierName,
+          type: selectedSim.type
+        },
+        activeCalls,
+        onMakeCall: makeCall,
+        onEndCall: endCall,
+        onMergeActiveCalls: mergeActiveCalls,
+        deviceModel: deviceInfo.model,
+        campaignProgress,
+        campaignName,
+        onPauseCampaign: handlePauseCampaign,
+        onResumeCampaign: handleResumeCampaign,
+        onStopCampaign: handleStopCampaign
+      };
+
       return (
-        <CorporateDialer
-          deviceName={deviceName}
-          selectedSim={{
-            id: selectedSim.id,
-            name: selectedSim.displayName,
-            operator: selectedSim.carrierName,
-            type: selectedSim.type
-          }}
-          activeCalls={activeCalls}
-          onMakeCall={makeCall}
-          onEndCall={endCall}
-          onMergeActiveCalls={mergeActiveCalls}
-          deviceModel={deviceInfo.model}
-          campaignProgress={campaignProgress}
-          campaignName={campaignName}
-          onPauseCampaign={handlePauseCampaign}
-          onResumeCampaign={handleResumeCampaign}
-          onStopCampaign={handleStopCampaign}
-        />
+        <div className="min-h-screen bg-background">
+          {/* Seletor de visualização - fixo no topo */}
+          <div className="sticky top-0 z-50 bg-background/80 backdrop-blur-sm border-b p-3 shadow-sm">
+            <div className="max-w-md mx-auto flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Label htmlFor="view-toggle" className="text-sm font-medium cursor-pointer flex items-center gap-2">
+                  {useModernView ? (
+                    <>
+                      <LayoutGrid className="w-4 h-4" />
+                      <span>Visualização Moderna</span>
+                    </>
+                  ) : (
+                    <>
+                      <LayoutList className="w-4 h-4" />
+                      <span>Visualização Corporativa</span>
+                    </>
+                  )}
+                </Label>
+              </div>
+              <Switch
+                id="view-toggle"
+                checked={useModernView}
+                onCheckedChange={setUseModernView}
+              />
+            </div>
+          </div>
+
+          {/* Renderiza a view selecionada */}
+          {useModernView ? (
+            <ModernDialer {...dialerProps} />
+          ) : (
+            <CorporateDialer {...dialerProps} />
+          )}
+        </div>
       );
     }
 
