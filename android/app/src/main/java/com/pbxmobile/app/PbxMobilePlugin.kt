@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
@@ -215,6 +216,43 @@ class PbxMobilePlugin : Plugin() {
         
         Log.d(TAG, "ROLE_DIALER status: $hasRole")
         call.resolve(JSObject().put("hasRole", hasRole))
+    }
+
+    @PluginMethod
+    fun getDeviceName(call: PluginCall) {
+        try {
+            Log.d(TAG, "Getting device name")
+            
+            var deviceName: String? = null
+            
+            // Try to get custom device name from Settings (Android 7.1+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+                try {
+                    deviceName = Settings.Global.getString(context.contentResolver, Settings.Global.DEVICE_NAME)
+                    if (deviceName.isNullOrBlank() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        // For Android 12+, try Bluetooth name as fallback
+                        deviceName = Settings.Secure.getString(context.contentResolver, "bluetooth_name")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not get device name from Settings: ${e.message}")
+                }
+            }
+            
+            // Fallback to Build.MODEL if no custom name is set
+            if (deviceName.isNullOrBlank()) {
+                deviceName = Build.MODEL
+                Log.d(TAG, "Using Build.MODEL as device name: $deviceName")
+            } else {
+                Log.d(TAG, "Using custom device name from Settings: $deviceName")
+            }
+            
+            call.resolve(JSObject().put("deviceName", deviceName ?: "Android Device"))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting device name", e)
+            // Fallback to Build.MODEL
+            val fallbackName = Build.MODEL
+            call.resolve(JSObject().put("deviceName", fallbackName))
+        }
     }
 
     @PluginMethod

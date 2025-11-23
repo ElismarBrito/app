@@ -536,7 +536,9 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
   useEffect(() => {
     // Update device name when deviceInfo changes
-    setDeviceName(deviceInfo.model);
+    // Prefer real device name from system, fallback to model
+    const preferredName = deviceInfo.realDeviceName || deviceInfo.model;
+    setDeviceName(preferredName);
   }, [deviceInfo]);
 
   // CORREÇÃO CRÍTICA: Subscription global para detectar despareamento do dashboard em tempo real
