@@ -286,7 +286,7 @@ export function ModernDialer({
                 inputMode="none"
                 onFocus={(e) => e.target.blur()}
                 placeholder="Digite o número"
-                className="text-center text-2xl font-semibold h-16 border border-gray-200 bg-white text-gray-900 focus-visible:ring-1 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:outline-none focus-visible:border-transparent rounded-xl cursor-default shadow-sm"
+                className="text-center text-2xl font-light h-16 border border-gray-200 bg-white text-gray-900 focus-visible:ring-1 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:outline-none focus-visible:border-transparent rounded-xl cursor-default shadow-sm"
                 type="tel"
               />
               {phoneNumber && (
@@ -294,9 +294,9 @@ export function ModernDialer({
                   size="sm"
                   variant="ghost"
                   onClick={handleBackspace}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 p-0 rounded-full bg-gray-800 hover:bg-gray-900 text-white shadow-md"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 p-0 rounded-full hover:bg-gray-200"
                 >
-                  <Delete className="w-5 h-5" />
+                  <Delete className="w-5 h-5 !text-gray-900" />
                 </Button>
               )}
             </div>
