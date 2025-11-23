@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import PbxMobile from '@/plugins/pbx-mobile';
 
 interface DeviceInfo {
   model: string;
+  realDeviceName: string | null; // Nome real do dispositivo do sistema
   os: string;
   osVersion: string;
   userAgent: string;
@@ -13,6 +15,7 @@ interface DeviceInfo {
 export const useDeviceInfo = () => {
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo>({
     model: 'Smartphone',
+    realDeviceName: null,
     os: 'Unknown',
     osVersion: '',
     userAgent: '',
@@ -22,7 +25,17 @@ export const useDeviceInfo = () => {
   });
 
   useEffect(() => {
-    const detectDeviceInfo = () => {
+    const detectDeviceInfo = async () => {
+      // Tentar pegar o nome real do dispositivo do sistema Android
+      let realDeviceName: string | null = null;
+      try {
+        const result = await PbxMobile.getDeviceName();
+        realDeviceName = result.deviceName || null;
+        console.log('📱 Nome real do dispositivo obtido:', realDeviceName);
+      } catch (error) {
+        console.warn('⚠️ Erro ao obter nome real do dispositivo:', error);
+        // Continua com a detecção normal mesmo se falhar
+      }
       const userAgent = navigator.userAgent;
       
       // Detectar sistema operacional
@@ -119,6 +132,7 @@ export const useDeviceInfo = () => {
 
       setDeviceInfo({
         model,
+        realDeviceName,
         os,
         osVersion,
         userAgent,

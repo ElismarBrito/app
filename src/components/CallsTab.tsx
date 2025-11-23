@@ -30,7 +30,29 @@ interface CallsTabProps {
 export const CallsTab: React.FC<CallsTabProps> = ({ calls, onCallAction }) => {
   const [showHidden, setShowHidden] = useState(false);
   
-  const activesCalls = calls.filter(call => call.status !== 'ended');
+  // Filtra chamadas ativas, excluindo chamadas antigas que provavelmente já foram encerradas
+  const now = Date.now();
+  const fiveMinutesAgo = now - (5 * 60 * 1000); // 5 minutos
+  
+  const activesCalls = calls.filter(call => {
+    if (call.status === 'ended') return false;
+    
+    const callStartTime = new Date(call.startTime).getTime();
+    const callAge = now - callStartTime;
+    
+    // Se a chamada está "ringing" há mais de 5 minutos, provavelmente já foi encerrada
+    if (call.status === 'ringing' && callAge > fiveMinutesAgo) {
+      return false;
+    }
+    
+    // Se a chamada está "answered" há mais de 2 horas, provavelmente já foi encerrada
+    if (call.status === 'answered' && callAge > (2 * 60 * 60 * 1000)) {
+      return false;
+    }
+    
+    return true;
+  });
+  
   const endedCalls = calls.filter(call => call.status === 'ended' && !call.hidden);
   const hiddenCalls = calls.filter(call => call.status === 'ended' && call.hidden);
 

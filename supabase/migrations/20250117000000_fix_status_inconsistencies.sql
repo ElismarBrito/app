@@ -14,7 +14,6 @@ ALTER TABLE public.devices ADD CONSTRAINT devices_status_check
 COMMENT ON COLUMN public.devices.status IS 'Status do dispositivo: online (ativo), offline (inativo), unpaired (despareado), pairing (em pareamento)';
 
 -- 2. Garantir que o ENUM call_status_enum existe e tem todos os valores necessários
--- NOTA: A migration 20251014180000 já criou o ENUM, então apenas adiciona valores faltantes
 DO $$
 BEGIN
     -- Se o tipo não existe, cria
@@ -43,27 +42,51 @@ BEGIN
     END IF;
 END$$;
 
--- 3. A coluna status em calls JÁ é ENUM (da migration 20251014180000)
--- Esta seção apenas garante que o DEFAULT está correto
+-- 3. Se a coluna status em calls ainda não é do tipo ENUM, converter
 DO $$
-DECLARE
-    current_default TEXT;
 BEGIN
-    -- Verifica se tem DEFAULT
-    SELECT column_default INTO current_default
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'calls'
-      AND column_name = 'status';
-    
-    -- Garante que o DEFAULT está configurado corretamente
-    BEGIN
+    -- Verifica se a coluna é TEXT
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+        AND table_name = 'calls' 
+        AND column_name = 'status' 
+        AND data_type = 'text'
+    ) THEN
+        -- Converte TEXT para ENUM
         ALTER TABLE public.calls 
-        ALTER COLUMN status SET DEFAULT 'ringing'::public.call_status_enum;
-    EXCEPTION
-        WHEN OTHERS THEN
-            NULL; -- Ignora erro se já estiver correto
-    END;
+        ALTER COLUMN status TYPE public.call_status_enum 
+        USING CASE 
+            WHEN status = 'ringing' THEN 'ringing'::public.call_status_enum
+            WHEN status = 'answered' THEN 'answered'::public.call_status_enum
+            WHEN status = 'ended' THEN 'ended'::public.call_status_enum
+            WHEN status = 'dialing' THEN 'dialing'::public.call_status_enum
+            WHEN status = 'completed' THEN 'completed'::public.call_status_enum
+            WHEN status = 'busy' THEN 'busy'::public.call_status_enum
+            WHEN status = 'failed' THEN 'failed'::public.call_status_enum
+            WHEN status = 'no_answer' THEN 'no_answer'::public.call_status_enum
+            WHEN status = 'queued' THEN 'queued'::public.call_status_enum
+            ELSE 'ringing'::public.call_status_enum -- Default fallback
+        END;
+    END IF;
+END$$;
+
+-- 4. Garantir que o ENUM é usado como tipo da coluna
+-- Se ainda não for ENUM, tenta converter novamente
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+        AND table_name = 'calls' 
+        AND column_name = 'status' 
+        AND udt_name != 'call_status_enum'
+    ) THEN
+        -- Força conversão para ENUM
+        ALTER TABLE public.calls 
+        ALTER COLUMN status TYPE public.call_status_enum 
+        USING status::text::public.call_status_enum;
+    END IF;
 END$$;
 
 -- Comentário na coluna para documentação

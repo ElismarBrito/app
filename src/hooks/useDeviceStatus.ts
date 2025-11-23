@@ -7,35 +7,11 @@ export const useDeviceStatus = (deviceId: string) => {
   const isOnlineRef = useRef(false)
 
   // Atualizar status para online (chamado apenas quando necessário)
-  // Verifica se o dispositivo não foi explicitamente desconectado antes de marcar como online
   const setOnline = async () => {
     if (!user || !deviceId || isOnlineRef.current) return
 
     try {
-      // Verifica o status atual antes de atualizar
-      const { data: device, error: checkError } = await supabase
-        .from('devices')
-        .select('status')
-        .eq('id', deviceId)
-        .eq('user_id', user.id)
-        .single()
-
-      if (checkError || !device) {
-        console.log('⚠️ Dispositivo não encontrado ao tentar marcar como online')
-        return
-      }
-
-      // Se o dispositivo foi explicitamente desconectado no dashboard, NÃO marca como online
-      // Verificação case-insensitive para garantir que funciona mesmo com variações de case
-      const deviceStatus = device.status?.toLowerCase()?.trim()
-      if (deviceStatus === 'offline') {
-        console.log('⚠️ Dispositivo está desconectado no dashboard (status: offline), não marcando como online')
-        isOnlineRef.current = false
-        return
-      }
-
-      // Só atualiza se o status não for 'offline'
-      const { error } = await supabase
+      await supabase
         .from('devices')
         .update({
           status: 'online',
@@ -45,20 +21,34 @@ export const useDeviceStatus = (deviceId: string) => {
         .eq('id', deviceId)
         .eq('user_id', user.id)
       
-      if (!error) {
-        isOnlineRef.current = true
-        console.log('Dispositivo marcado como online')
-      }
+      isOnlineRef.current = true
+      console.log('Dispositivo marcado como online')
     } catch (error) {
       console.error('Erro ao marcar dispositivo como online:', error)
     }
   }
 
   // Atualizar status para offline (chamado apenas quando necessário)
+  // CORREÇÃO: Não atualiza se status já for 'unpaired' (despareamento intencional)
   const setOffline = async () => {
     if (!user || !deviceId || !isOnlineRef.current) return
 
     try {
+      // Verificar status atual antes de mudar para offline
+      const { data: currentDevice } = await supabase
+        .from('devices')
+        .select('status')
+        .eq('id', deviceId)
+        .eq('user_id', user.id)
+        .single()
+      
+      // Se já está 'unpaired', não fazer nada (foi despareamento intencional)
+      if (currentDevice?.status === 'unpaired') {
+        console.log('Dispositivo já está unpaired, não mudando para offline')
+        isOnlineRef.current = false
+        return
+      }
+      
       await supabase
         .from('devices')
         .update({
@@ -77,13 +67,29 @@ export const useDeviceStatus = (deviceId: string) => {
   }
 
   // Detectar quando o app vai para background/foreground
-  // NÃO marca como offline quando vai para background - mantém online para continuar campanhas
-  const handleVisibilityChange = () => {
-    // Quando volta para foreground, apenas atualiza last_seen
-    if (!document.hidden) {
+  // CORREÇÃO: Não desconecta quando tela apaga, apenas atualiza last_seen
+  const handleVisibilityChange = async () => {
+    if (document.hidden) {
+      // Tela apagada: apenas atualiza last_seen, NÃO muda status para offline
+      if (user && deviceId) {
+        try {
+          await supabase
+            .from('devices')
+            .update({
+              last_seen: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', deviceId)
+            .eq('user_id', user.id)
+          console.log('Tela apagada: last_seen atualizado (status mantido)')
+        } catch (error) {
+          console.error('Erro ao atualizar last_seen:', error)
+        }
+      }
+    } else {
+      // Tela ligou novamente: marcar como online
       setOnline()
     }
-    // Quando vai para background, NÃO marca como offline - deixa continuar online
   }
 
   // Detectar quando o app perde/recupera conexão
@@ -91,76 +97,32 @@ export const useDeviceStatus = (deviceId: string) => {
     setOnline()
   }
 
-  // Só marca como offline se realmente perdeu conexão de internet
   const handleOffline = () => {
-    // Não marca como offline imediatamente - pode ser apenas um problema temporário
-    // O dispositivo continua pareado mesmo sem internet momentânea
-    console.log('⚠️ Conexão de internet perdida, mas mantendo dispositivo pareado')
+    setOffline()
   }
 
   // Detectar quando a janela/aba é fechada
-  // NÃO marca como offline - o dispositivo continua pareado mesmo após fechar o app
-  // O Android pode manter o serviço rodando em background para campanhas
   const handleBeforeUnload = () => {
-    // Apenas atualiza last_seen, mas mantém status online
-    // O dispositivo só é marcado como offline se o usuário desemparear manualmente no dashboard
+    // Usar navigator.sendBeacon para garantir que o request seja enviado
     if (user && deviceId && isOnlineRef.current) {
-      // Atualiza last_seen sem mudar status
       const data = JSON.stringify({
+        status: 'offline',
         last_seen: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
       
-      try {
-        navigator.sendBeacon(
-          `https://jovnndvixqymfvnxkbep.supabase.co/rest/v1/devices?id=eq.${deviceId}&user_id=eq.${user.id}`,
-          data
-        )
-      } catch (e) {
-        // Ignora erros no sendBeacon
-      }
+      navigator.sendBeacon(
+        `https://jovnndvixqymfvnxkbep.supabase.co/rest/v1/devices?id=eq.${deviceId}&user_id=eq.${user.id}`,
+        data
+      )
     }
   }
 
   useEffect(() => {
     if (!user || !deviceId) return
 
-    // Verifica o status atual do dispositivo no banco antes de marcar como online
-    // Se o dispositivo foi desconectado no dashboard (status = 'offline'), NÃO marca como online
-    const checkAndSetOnline = async () => {
-      try {
-        const { data: device, error } = await supabase
-          .from('devices')
-          .select('status')
-          .eq('id', deviceId)
-          .eq('user_id', user.id)
-          .single()
-
-        if (error || !device) {
-          console.log('⚠️ Dispositivo não encontrado no banco')
-          return
-        }
-
-        // Se o dispositivo foi explicitamente desconectado no dashboard, NÃO marca como online
-        // Verificação case-insensitive para garantir que funciona mesmo com variações de case
-        const deviceStatus = device.status?.toLowerCase()?.trim()
-        if (deviceStatus === 'offline') {
-          console.log('⚠️ Dispositivo está desconectado no dashboard (status: offline), não marcando como online')
-          isOnlineRef.current = false
-          return
-        }
-
-        // Só marca como online se o status não for 'offline'
-        if (deviceStatus === 'online' || deviceStatus === 'configured') {
-          await setOnline()
-        }
-      } catch (error) {
-        console.error('Erro ao verificar status do dispositivo:', error)
-      }
-    }
-
-    // Verifica o status antes de marcar como online
-    checkAndSetOnline()
+    // Marcar como online quando o hook é montado
+    setOnline()
 
     // Listeners para detectar mudanças de estado
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -169,9 +131,8 @@ export const useDeviceStatus = (deviceId: string) => {
     window.addEventListener('beforeunload', handleBeforeUnload)
 
     // Cleanup ao desmontar o hook
-    // NÃO marca como offline no cleanup - dispositivo continua pareado
     return () => {
-      // Apenas remove listeners, não marca como offline
+      setOffline()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)

@@ -29,7 +29,7 @@ interface NumberList {
 interface Device {
   id: string;
   name: string;
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'unpaired';
   pairedAt: string;
   lastSeen?: string;
 }

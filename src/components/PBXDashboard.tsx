@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Phone, PhoneCall, Users, Server, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,11 +15,13 @@ import { useToast } from '@/hooks/use-toast';
 import { NewCallDialog } from './dialogs/NewCallDialog';
 import { ConferenceDialog } from './dialogs/ConferenceDialog';
 import { useDeviceValidation } from '@/hooks/useDeviceValidation';
+import { useDeviceHeartbeat } from '@/hooks/useDeviceHeartbeat';
 import { supabase } from '@/integrations/supabase/client';
 
 const PBXDashboard = () => {
   const { user, signOut } = useAuth();
   const { toast } = useToast();
+  const cleanupDoneRef = useRef<Set<string>>(new Set());
   
   const {
     devices,
@@ -37,12 +39,36 @@ const PBXDashboard = () => {
     updateNumberList,
     toggleListStatus,
     deleteNumberList,
+    fetchOnlineDevices,
+    fetchActiveCalls,
+    fetchActiveLists,
     refetch
   } = usePBXData();
 
   // Initialize device validation with correct interface
   useDeviceValidation(devices, (deviceId: string, updates: Partial<Device>) => {
     updateDeviceStatus(deviceId, updates);
+  });
+
+  // PROFISSIONAL: Heartbeat bidirecional (ping/pong) - Verificação ativa de dispositivos
+  useDeviceHeartbeat({
+    devices,
+    onDeviceInactive: async (deviceId) => {
+      console.log(`⚠️ Dispositivo ${deviceId} inativo (sem resposta a ping/pong e sem heartbeat)`)
+      // Marcar como offline usando a função do banco (mais confiável)
+      try {
+        // Usar a função do banco para marcar dispositivos inativos
+        const { data, error } = await supabase.rpc('mark_inactive_devices_offline')
+        if (error) throw error
+        
+        // Recarregar dispositivos para refletir mudanças
+        await refetch()
+      } catch (error) {
+        console.error('Erro ao marcar dispositivo inativo:', error)
+        // Fallback: marcar manualmente
+        await updateDeviceStatus(deviceId, { status: 'offline' })
+      }
+    }
   });
 
   const [wsConnected, setWsConnected] = useState(true);
@@ -140,20 +166,25 @@ const PBXDashboard = () => {
   const handleDeviceAction = async (deviceId: string, action: string) => {
     // Handle bulk action
     if (deviceId === 'all' && action === 'refresh') {
-      toast({ title: "Atualizando todos os dispositivos..." });
-      for (const device of devices) {
-        await updateDeviceStatus(device.id, { status: 'online', last_seen: new Date().toISOString() });
-      }
-      toast({ title: "Dispositivos atualizados" });
+      toast({ title: "Atualizando dados do banco..." });
+      // CORREÇÃO: Recarregar dados do banco usando índices compostos, não forçar status
+      await refetch();
+      toast({ title: "Dados atualizados do banco" });
       return;
     }
 
     switch (action) {
       case 'refresh':
-        await updateDeviceStatus(deviceId, { status: 'online', last_seen: new Date().toISOString() });
+        // CORREÇÃO: Recarregar dados do banco usando índices, mostrar estado REAL do dispositivo
+        toast({ title: "Atualizando dados do banco..." });
+        await refetch(); // Recarrega todos os dados usando fetchDevices() que usa índices
+        toast({ title: "Dados atualizados do banco" });
         break;
       case 'unpair':
-        await updateDeviceStatus(deviceId, { status: 'offline' });
+        // Marcar como unpaired para que o app mobile detecte a desconexão
+        await updateDeviceStatus(deviceId, { status: 'unpaired' });
+        // Também enviar comando via broadcast para garantir
+        await sendCommandToDevice(deviceId, 'unpair', {});
         break;
       case 'delete':
         await removeDevice(deviceId);
@@ -197,6 +228,118 @@ const PBXDashboard = () => {
           });
           return;
       }
+    }
+
+    // Handle "End All" action
+    if (callId === 'all' && action === 'end') {
+      const now = Date.now();
+      const fiveMinutesAgo = now - (5 * 60 * 1000); // 5 minutos
+      
+      // Filtra apenas chamadas realmente ativas (não encerradas E criadas recentemente)
+      // Chamadas muito antigas provavelmente já foram encerradas mas não atualizaram o status
+      const activeCalls = calls.filter(c => {
+        if (c.status === 'ended') return false;
+        
+        const callStartTime = new Date(c.start_time).getTime();
+        const callAge = now - callStartTime;
+        
+        // Se a chamada está "ringing" há mais de 5 minutos, provavelmente já foi encerrada
+        if (c.status === 'ringing' && callAge > fiveMinutesAgo) {
+          return false;
+        }
+        
+        // Se a chamada está "answered" há mais de 2 horas, provavelmente já foi encerrada
+        if (c.status === 'answered' && callAge > (2 * 60 * 60 * 1000)) {
+          return false;
+        }
+        
+        return true;
+      });
+      
+      console.log(`Encerrando ${activeCalls.length} chamadas ativas (filtradas de ${calls.filter(c => c.status !== 'ended').length} total)`);
+      
+      if (activeCalls.length === 0) {
+        // Se havia chamadas mas foram filtradas, atualiza o status delas para 'ended'
+        const staleCalls = calls.filter(c => {
+          if (c.status === 'ended') return false;
+          const callStartTime = new Date(c.start_time).getTime();
+          const callAge = now - callStartTime;
+          return (c.status === 'ringing' && callAge > fiveMinutesAgo) || 
+                 (c.status === 'answered' && callAge > (2 * 60 * 60 * 1000));
+        });
+        
+        if (staleCalls.length > 0) {
+          // Atualiza chamadas antigas para 'ended' sem tentar encerrar no dispositivo
+          for (const staleCall of staleCalls) {
+            const duration = Math.floor((now - new Date(staleCall.start_time).getTime()) / 1000);
+            await updateCallStatus(staleCall.id, 'ended', duration);
+          }
+          
+          toast({
+            title: "Chamadas antigas atualizadas",
+            description: `${staleCalls.length} chamada(s) antiga(s) foram marcadas como encerradas`
+          });
+        } else {
+          toast({
+            title: "Nenhuma chamada ativa",
+            description: "Não há chamadas para encerrar",
+            variant: "default"
+          });
+        }
+        return;
+      }
+      
+      let successCount = 0;
+      let errorCount = 0;
+      let skippedCount = 0;
+      
+      for (const activeCall of activeCalls) {
+        try {
+          const callStartTime = new Date(activeCall.start_time).getTime();
+          const callAge = now - callStartTime;
+          
+          // Pula chamadas muito antigas (já devem ter sido encerradas)
+          if ((activeCall.status === 'ringing' && callAge > fiveMinutesAgo) ||
+              (activeCall.status === 'answered' && callAge > (2 * 60 * 60 * 1000))) {
+            skippedCount++;
+            // Marca como encerrada sem tentar encerrar no dispositivo
+            const duration = Math.floor(callAge / 1000);
+            await updateCallStatus(activeCall.id, 'ended', duration);
+            continue;
+          }
+          
+          const duration = Math.floor(callAge / 1000);
+          await updateCallStatus(activeCall.id, 'ended', duration);
+          
+          // Send command to device to end call
+          if (activeCall.device_id) {
+            await sendCommandToDevice(activeCall.device_id, 'end_call', { callId: activeCall.id });
+          }
+          
+          successCount++;
+        } catch (error) {
+          console.error(`Erro ao encerrar chamada ${activeCall.id}:`, error);
+          errorCount++;
+        }
+      }
+      
+      let message = '';
+      if (successCount > 0) {
+        message = `${successCount} chamada(s) encerrada(s)`;
+      }
+      if (skippedCount > 0) {
+        message += message ? `, ${skippedCount} atualizada(s) como encerrada(s)` : `${skippedCount} chamada(s) antiga(s) atualizada(s)`;
+      }
+      if (errorCount > 0) {
+        message += message ? `, ${errorCount} erro(s)` : `${errorCount} erro(s)`;
+      }
+      
+      toast({
+        title: successCount > 0 ? "Chamadas processadas" : "Chamadas atualizadas",
+        description: message || "Nenhuma chamada processada",
+        variant: errorCount > 0 ? "destructive" : "default"
+      });
+      return;
     }
 
     const call = calls.find(c => c.id === callId);
@@ -244,9 +387,9 @@ const PBXDashboard = () => {
             });
             break;
           case 'all':
-            // End all active calls
-            const activeCalls = calls.filter(c => c.status !== 'ended');
-            for (const activeCall of activeCalls) {
+            // End all active calls - OTIMIZADO: usa fetchActiveCalls
+            const activeCallsOptimized = await fetchActiveCalls();
+            for (const activeCall of activeCallsOptimized) {
               const callDuration = Math.floor((Date.now() - new Date(activeCall.start_time).getTime()) / 1000);
               await updateCallStatus(activeCall.id, 'ended', callDuration);
               // Send command to each device
@@ -256,7 +399,7 @@ const PBXDashboard = () => {
             }
             toast({
               title: "Todas as chamadas encerradas",
-              description: `${activeCalls.length} chamadas foram encerradas`
+              description: `${activeCallsOptimized.length} chamadas foram encerradas`
             });
             break;
           case 'mute':
@@ -383,13 +526,125 @@ const PBXDashboard = () => {
   };
 
   // Convert database format to component format
-  const formattedDevices = devices.map(device => ({
-    id: device.id,
-    name: device.name,
-    status: device.status,
-    pairedAt: device.paired_at,
-    lastSeen: device.last_seen || undefined
-  }));
+  // CORREÇÃO: Filtros adicionais para garantir estado real dos dispositivos
+  const now = Date.now()
+  const fiveMinutesAgo = now - (5 * 60 * 1000)
+  
+  const formattedDevices = devices
+    .filter(device => {
+      // 1. Remove dispositivos 'unpaired'
+      if (device.status === 'unpaired') {
+        console.log(`🗑️ Removendo dispositivo 'unpaired': ${device.name} (${device.id})`)
+        return false
+      }
+      
+      // 2. Remove dispositivos 'online' inativos (sem heartbeat há mais de 5 minutos)
+      if (device.status === 'online') {
+        if (!device.last_seen) {
+          console.log(`⚠️ Dispositivo 'online' sem last_seen, considerando inativo: ${device.name}`)
+          return false
+        }
+        const lastSeenTime = new Date(device.last_seen).getTime()
+        const timeSinceLastSeen = now - lastSeenTime
+        if (timeSinceLastSeen > fiveMinutesAgo) {
+          console.log(`⚠️ Dispositivo 'online' inativo (last_seen há ${Math.round(timeSinceLastSeen / 60000)} minutos): ${device.name}`)
+          return false // Não mostrar até ser marcado como 'offline' no banco
+        }
+      }
+      
+      return true
+    })
+    .map(device => ({
+      id: device.id,
+      name: device.name,
+      status: device.status,
+      pairedAt: device.paired_at,
+      lastSeen: device.last_seen || undefined
+    }));
+
+  // CORREÇÃO: Detectar dispositivos inativos (desinstalados ou sem heartbeat)
+  // Verifica dispositivos com last_seen muito antigo e marca como offline
+  useEffect(() => {
+    if (!devices.length || loading) return;
+    
+    const checkInactiveDevices = setInterval(() => {
+      const now = Date.now();
+      const fiveMinutesAgo = new Date(now - (5 * 60 * 1000)).toISOString(); // 5 minutos sem heartbeat
+      
+      // Dispositivos online que não atualizaram last_seen há mais de 5 minutos
+      const inactiveDevices = devices.filter(device => {
+        if (device.status !== 'online') return false;
+        if (!device.last_seen) return true; // Se não tem last_seen, considerar inativo
+        
+        const lastSeenTime = new Date(device.last_seen).getTime();
+        const timeSinceLastSeen = now - lastSeenTime;
+        
+        // Se passou mais de 5 minutos sem atualização, considerar inativo
+        return timeSinceLastSeen > (5 * 60 * 1000);
+      });
+      
+      // Marcar dispositivos inativos como offline
+      if (inactiveDevices.length > 0) {
+        console.log(`⚠️ Detectados ${inactiveDevices.length} dispositivos inativos (sem heartbeat há mais de 5 minutos)`)
+        inactiveDevices.forEach(async (device) => {
+          try {
+            await updateDeviceStatus(device.id, { 
+              status: 'offline',
+              last_seen: device.last_seen || new Date().toISOString()
+            });
+            console.log(`📱 Dispositivo ${device.name} marcado como offline (inativo)`)
+          } catch (error) {
+            console.error(`Erro ao marcar dispositivo ${device.id} como offline:`, error)
+          }
+        });
+      }
+    }, 30000); // Verifica a cada 30 segundos
+    
+    return () => clearInterval(checkInactiveDevices);
+  }, [devices, loading, updateDeviceStatus]);
+
+  // Clean up stale calls (calls that are probably already ended but status wasn't updated)
+  // Executa periodicamente para limpar chamadas antigas
+  useEffect(() => {
+    if (!calls.length || loading) return;
+    
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      const fiveMinutesAgo = now - (5 * 60 * 1000);
+      const twoHoursAgo = now - (2 * 60 * 60 * 1000);
+      
+      const staleCalls = calls.filter(c => {
+        if (c.status === 'ended') return false;
+        if (cleanupDoneRef.current.has(c.id)) return false; // Já foi processada
+        
+        const callStartTime = new Date(c.start_time).getTime();
+        const callAge = now - callStartTime;
+        
+        // Chamadas "ringing" há mais de 5 minutos provavelmente já foram encerradas
+        if (c.status === 'ringing' && callAge > fiveMinutesAgo) {
+          return true;
+        }
+        
+        // Chamadas "answered" há mais de 2 horas provavelmente já foram encerradas
+        if (c.status === 'answered' && callAge > twoHoursAgo) {
+          return true;
+        }
+        
+        return false;
+      });
+      
+      // Atualiza chamadas antigas em lote (sem mostrar toast para não poluir)
+      if (staleCalls.length > 0) {
+        staleCalls.forEach(async (staleCall) => {
+          cleanupDoneRef.current.add(staleCall.id);
+          const duration = Math.floor((now - new Date(staleCall.start_time).getTime()) / 1000);
+          await updateCallStatus(staleCall.id, 'ended', duration);
+        });
+      }
+    }, 10000); // Executa a cada 10 segundos
+    
+    return () => clearInterval(cleanupInterval);
+  }, [calls.length, loading, updateCallStatus]);
 
   const formattedCalls = calls.map(call => {
     const device = devices.find(d => d.id === call.device_id);

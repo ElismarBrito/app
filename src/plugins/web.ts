@@ -26,6 +26,27 @@ export class PbxMobileWeb extends WebPlugin implements PbxMobilePlugin {
     };
   }
 
+  async getDeviceName(): Promise<{ deviceName: string }> {
+    console.log('Web: getDeviceName - returning navigator.userAgent based name');
+    // Web fallback - try to get from user agent
+    const ua = navigator.userAgent;
+    let deviceName = 'Web Device';
+    
+    if (/Android/i.test(ua)) {
+      // Try to extract device name from user agent
+      const match = ua.match(/([A-Za-z0-9\s]+)\sBuild/i);
+      if (match) {
+        deviceName = match[1].trim();
+      } else {
+        deviceName = 'Android Device';
+      }
+    } else if (/iPhone|iPad|iPod/i.test(ua)) {
+      deviceName = 'iPhone';
+    }
+    
+    return { deviceName };
+  }
+
   async requestRoleDialer(): Promise<{ granted: boolean }> {
     console.log('Web: requestRoleDialer - not available on web');
     return { granted: false };

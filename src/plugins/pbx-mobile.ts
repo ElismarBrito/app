@@ -122,6 +122,7 @@ export interface PbxMobilePlugin {
   // --- Gerenciamento Básico ---
   requestAllPermissions(): Promise<{ granted: boolean }>;
   getSimCards(): Promise<{ simCards: SimCardInfo[] }>;
+  getDeviceName(): Promise<{ deviceName: string }>;
   
   // --- Funções de Discador (ROLE_DIALER) ---
   requestRoleDialer(): Promise<{ granted: boolean }>;

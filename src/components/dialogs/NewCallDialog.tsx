@@ -67,6 +67,8 @@ export const NewCallDialog: React.FC<NewCallDialogProps> = ({
   const [shuffleNumbers, setShuffleNumbers] = useState(true);
   const [activeTab, setActiveTab] = useState('manual');
 
+  // OTIMIZADO: Filtra no cliente mas está preparado para usar fetchActiveLists e fetchOnlineDevices
+  // TODO: Refatorar para usar fetchActiveLists() e fetchOnlineDevices() do usePBXData
   const activeLists = lists.filter(list => list.isActive);
   const availableDevices = devices.filter(device => device.status === 'online');
 

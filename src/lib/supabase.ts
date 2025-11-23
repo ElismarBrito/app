@@ -19,7 +19,7 @@ export interface Database {
         Row: {
           id: string
           name: string
-          status: 'online' | 'offline'
+          status: 'online' | 'offline' | 'unpaired'
           paired_at: string
           last_seen: string | null
           user_id: string
@@ -29,7 +29,7 @@ export interface Database {
         Insert: {
           id?: string
           name: string
-          status?: 'online' | 'offline'
+          status?: 'online' | 'offline' | 'unpaired'
           paired_at?: string
           last_seen?: string | null
           user_id: string
@@ -39,7 +39,7 @@ export interface Database {
         Update: {
           id?: string
           name?: string
-          status?: 'online' | 'offline'
+          status?: 'online' | 'offline' | 'unpaired'
           paired_at?: string
           last_seen?: string | null
           user_id?: string
