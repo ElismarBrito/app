@@ -9,3 +9,6 @@ android/app/src/main/assets/public/index.html
 # Cache IDE
 .idea/caches/
 .idea/deviceManager.xml
+
+# Documentos de análise temporários (apenas local, não para produção)
+docs/analysis-temp/
