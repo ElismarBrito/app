@@ -2,7 +2,10 @@
 ## Validação de Campanha com Pool de 6 Chamadas Simultâneas
 
 ### Objetivo
-Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas simultâneas, testando diferentes cenários (ocupada, não atendida, encerrada) e garantindo que o sistema continue ligando até ser encerrado manualmente.
+Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas simultâneas, onde:
+- **6 chamadas são mantidas simultaneamente** (DIALING, RINGING, ACTIVE, HOLDING)
+- **Nova chamada só é iniciada quando uma das 6 muda para DISCONNECTED** (ou qualquer estado final: BUSY, NO_ANSWER, FAILED, REJECTED, UNREACHABLE)
+- **O sistema continua ligando automaticamente** até que a campanha seja encerrada manualmente (no app ou no dashboard)
 
 ---
 
@@ -49,20 +52,22 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 
 ---
 
-### Teste 2.2: Manutenção do Pool (Chamada Termina → Nova Inicia)
-**Objetivo**: Validar que quando uma chamada termina, uma nova é iniciada automaticamente
+### Teste 2.2: Manutenção do Pool (Chamada DISCONNECTED → Nova Inicia)
+**Objetivo**: Validar que quando uma das 6 chamadas muda para DISCONNECTED (ou estado final), uma nova é iniciada automaticamente para manter o pool cheio
 
 **Passos**:
-1. Aguardar uma chamada terminar (ocupada, não atendida, etc.)
-2. Verificar no logcat: `🔓 Chamada finalizada` seguido de `📞 Preenchendo pool`
-3. Verificar que uma nova chamada é iniciada imediatamente
-4. Verificar que o pool permanece com 6 chamadas ativas (ou próximo disso)
-5. Verificar no dashboard: `active_calls_count` se mantém próximo de 6
+1. Aguardar uma das 6 chamadas mudar para DISCONNECTED (ocupada, não atendida, etc.)
+2. Verificar no logcat: `🔄 Estado: [callId] -> [estado anterior] → DISCONNECTED` seguido de `🔓 Chamada finalizada` e depois `📞 Preenchendo pool`
+3. Verificar que uma nova chamada é iniciada automaticamente (dentro de 500ms - intervalo de verificação do pool)
+4. Verificar que o pool se mantém com exatamente 6 chamadas ativas (ou próximo disso durante a transição)
+5. Verificar no dashboard: `active_calls_count` se mantém em 6 (ou próximo durante transição)
 
 **Critérios de Sucesso**:
-- ✅ Quando uma chamada termina, uma nova é iniciada automaticamente
-- ✅ Pool se mantém próximo de 6 chamadas ativas
+- ✅ Quando uma chamada muda para DISCONNECTED, ela é removida de `activeCalls`
+- ✅ Pool maintenance detecta o slot vazio e inicia uma nova chamada automaticamente
+- ✅ Pool se mantém com 6 chamadas simultâneas (DIALING, RINGING, ACTIVE, HOLDING)
 - ✅ Dashboard reflete corretamente o número de chamadas ativas
+- ✅ Nova chamada só é iniciada quando uma das 6 termina (DISCONNECTED), não antes
 
 ---
 
@@ -79,10 +84,11 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 5. Verificar no dashboard: Status da chamada atualizado para `ended` com motivo `busy`
 
 **Critérios de Sucesso**:
-- ✅ Chamada ocupada é detectada corretamente
+- ✅ Chamada ocupada é detectada corretamente e muda para BUSY → DISCONNECTED
 - ✅ Status é atualizado no banco de dados
-- ✅ Retry é executado se configurado (até `maxRetries`)
-- ✅ Nova chamada substitui a ocupada no pool
+- ✅ Chamada é removida de `activeCalls` (libera slot no pool)
+- ✅ Retry é executado se configurado (até `maxRetries`) - número é readicionado à fila
+- ✅ Nova chamada é iniciada automaticamente para substituir a ocupada no pool (mantém 6 simultâneas)
 
 ---
 
@@ -97,10 +103,11 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 5. Verificar no dashboard: Status atualizado para `ended` com motivo `no_answer`
 
 **Critérios de Sucesso**:
-- ✅ Timeout é aplicado corretamente (45s)
-- ✅ Chamada não atendida é marcada como NO_ANSWER
-- ✅ Retry é executado se configurado
-- ✅ Nova chamada substitui a não atendida no pool
+- ✅ Timeout é aplicado corretamente (45s) para chamadas em DIALING/RINGING
+- ✅ Chamada não atendida muda para NO_ANSWER → DISCONNECTED
+- ✅ Chamada é removida de `activeCalls` (libera slot no pool)
+- ✅ Retry é executado se configurado - número é readicionado à fila
+- ✅ Nova chamada é iniciada automaticamente para substituir a não atendida no pool (mantém 6 simultâneas)
 
 ---
 
@@ -116,10 +123,11 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 6. Verificar que nova chamada é iniciada para substituir
 
 **Critérios de Sucesso**:
-- ✅ Chamada atendida permanece em ACTIVE
-- ✅ Chamada atendida NÃO é desconectada automaticamente pelo `stopCampaign()`
-- ✅ Ao encerrar manualmente, nova chamada é iniciada
-- ✅ Pool se mantém próximo de 6 chamadas
+- ✅ Chamada atendida permanece em ACTIVE (não muda para DISCONNECTED automaticamente)
+- ✅ Chamada atendida NÃO é desconectada automaticamente pelo `stopCampaign()` (apenas DIALING/RINGING são desconectadas)
+- ✅ Chamada atendida permanece em `activeCalls` (não libera slot no pool)
+- ✅ Ao encerrar manualmente (app ou dashboard), chamada muda para DISCONNECTED
+- ✅ Quando encerrada manualmente, nova chamada é iniciada automaticamente para manter 6 simultâneas
 
 ---
 
@@ -134,9 +142,10 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 5. Verificar no dashboard: Status atualizado para `ended` com motivo `unreachable`
 
 **Critérios de Sucesso**:
-- ✅ Números inalcançáveis são detectados
-- ✅ Retry limitado (máximo 2 tentativas)
-- ✅ Nova chamada substitui a inalcançável no pool
+- ✅ Números inalcançáveis são detectados e mudam para UNREACHABLE → DISCONNECTED
+- ✅ Chamada é removida de `activeCalls` (libera slot no pool)
+- ✅ Retry limitado (máximo 2 tentativas) - número é readicionado à fila
+- ✅ Nova chamada é iniciada automaticamente para substituir a inalcançável no pool (mantém 6 simultâneas)
 
 ---
 
@@ -156,10 +165,11 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 4. Verificar no dashboard: Progresso da campanha atualizado
 
 **Critérios de Sucesso**:
-- ✅ Campanha continua ligando indefinidamente
-- ✅ Pool se mantém estável (próximo de 6)
-- ✅ Números são processados sem parar
-- ✅ Dashboard mostra progresso correto
+- ✅ Campanha continua ligando indefinidamente até ser encerrada manualmente
+- ✅ Pool se mantém estável com 6 chamadas simultâneas (DIALING, RINGING, ACTIVE, HOLDING)
+- ✅ Quando uma chamada muda para DISCONNECTED, uma nova é iniciada automaticamente
+- ✅ Números são processados continuamente (novos números ou retries)
+- ✅ Dashboard mostra progresso correto e `active_calls_count` se mantém próximo de 6
 
 ---
 
@@ -358,18 +368,34 @@ WHERE id = 'SEU_DEVICE_ID';
 
 ## Notas Importantes
 
-1. **Chamadas Atendidas**: O sistema foi configurado para NÃO desconectar chamadas em estado ACTIVE ou HOLDING quando a campanha é encerrada. Isso é intencional para preservar chamadas que foram atendidas.
+1. **Pool de 6 Chamadas Simultâneas**: 
+   - O sistema mantém **exatamente 6 chamadas simultâneas** em estados ativos (DIALING, RINGING, ACTIVE, HOLDING)
+   - **Nova chamada só é iniciada quando uma das 6 muda para DISCONNECTED** (ou qualquer estado final)
+   - O pool maintenance verifica a cada 500ms se há slots disponíveis e inicia novas chamadas automaticamente
 
-2. **Pool Maintenance**: O sistema verifica o pool a cada 500ms e inicia novas chamadas automaticamente quando há slots disponíveis.
+2. **Estados Finais que Liberam Slot no Pool**:
+   - DISCONNECTED: Chamada desconectada normalmente
+   - BUSY: Linha ocupada
+   - NO_ANSWER: Não atendeu (timeout de 45s)
+   - FAILED: Falha na chamada
+   - REJECTED: Chamada rejeitada
+   - UNREACHABLE: Número inalcançável
 
-3. **Retry Logic**: 
-   - NO_ANSWER: até `maxRetries` (padrão 3)
-   - BUSY: até `maxRetries` (padrão 3)
-   - UNREACHABLE: máximo 2 tentativas
+3. **Chamadas Atendidas (ACTIVE/HOLDING)**:
+   - **NÃO liberam slot no pool** - permanecem ativas até serem encerradas manualmente
+   - **NÃO são desconectadas automaticamente** quando a campanha é encerrada (apenas DIALING/RINGING são desconectadas)
+   - Quando encerradas manualmente, mudam para DISCONNECTED e liberam slot para nova chamada
+
+4. **Retry Logic**: 
+   - NO_ANSWER: até `maxRetries` (padrão 3) - número é readicionado à fila
+   - BUSY: até `maxRetries` (padrão 3) - número é readicionado à fila
+   - UNREACHABLE: máximo 2 tentativas - número é readicionado à fila
    - REJECTED: sem retry
-   - FAILED: máximo 2 tentativas
+   - FAILED: máximo 2 tentativas - número é readicionado à fila
 
-4. **Timeout**: Chamadas em DIALING/RINGING têm timeout de 45s. Após esse tempo, são desconectadas e marcadas como NO_ANSWER.
+5. **Timeout**: Chamadas em DIALING/RINGING têm timeout de 45s. Após esse tempo, são desconectadas e marcadas como NO_ANSWER → DISCONNECTED.
 
-5. **Sincronização**: O `active_calls_count` é atualizado apenas quando o valor muda, com verificação periódica a cada 30s para garantir consistência.
+6. **Sincronização**: O `active_calls_count` é atualizado apenas quando o valor muda, com verificação periódica a cada 30s para garantir consistência.
+
+7. **Continuidade**: A campanha continua ligando indefinidamente até ser encerrada manualmente (botão no app ou no dashboard). Não encerra automaticamente quando a lista termina - aguarda novos números ou retries.
 
