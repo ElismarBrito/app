@@ -134,20 +134,10 @@ CREATE TRIGGER update_number_lists_updated_at
     BEFORE UPDATE ON public.number_lists
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
--- Insert some sample data for demonstration
-INSERT INTO public.devices (name, status, user_id) VALUES 
-    ('Samsung Galaxy S21', 'online', auth.uid()),
-    ('iPhone 13 Pro', 'offline', auth.uid())
-ON CONFLICT DO NOTHING;
-
-INSERT INTO public.calls (number, status, start_time, duration, user_id) VALUES 
-    ('+55 11 99999-9999', 'answered', NOW() - INTERVAL '2 hours', 120, auth.uid()),
-    ('+55 11 88888-8888', 'ended', NOW() - INTERVAL '1 hour', 85, auth.uid()),
-    ('+55 11 77777-7777', 'ringing', NOW(), NULL, auth.uid())
-ON CONFLICT DO NOTHING;
-
-INSERT INTO public.number_lists (name, numbers, is_active, user_id) VALUES 
-    ('Lista Principal', ARRAY['+55 11 99999-9999', '+55 11 88888-8888', '+55 11 77777-7777'], true, auth.uid()),
-    ('Campanhas Janeiro', ARRAY['+55 11 66666-6666', '+55 11 55555-5555'], false, auth.uid()),
-    ('Clientes VIP', ARRAY['+55 11 44444-4444', '+55 11 33333-3333', '+55 11 22222-2222'], true, auth.uid())
-ON CONFLICT DO NOTHING;
+-- Dados de exemplo removidos - não usar em produção
+-- Se precisar de dados de teste para desenvolvimento, criar manualmente ou via script separado
+-- 
+-- EXEMPLO (não executar em produção):
+-- INSERT INTO public.devices (name, status, user_id) VALUES 
+--     ('Samsung Galaxy S21', 'online', auth.uid())
+-- ON CONFLICT DO NOTHING;

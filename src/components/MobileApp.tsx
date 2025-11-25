@@ -66,10 +66,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   // Ref to track if dialerCallStateChanged listener is ready
   const dialerListenerReadyRef = useRef<boolean>(false);
   
+  // Ref para rastrear o último valor de active_calls_count para evitar atualizações desnecessárias
+  const lastActiveCallsCountRef = useRef<number | null>(null);
+  
   // Enable automatic status sync with database
   useCallStatusSync(callMapRef.current, startTimesRef.current);
   
   // Handle new call assignments from dashboard
+  // CORREÇÃO: Função estável - o hook useCallAssignments já usa useRef internamente
   const handleNewCallAssignment = (number: string, callId: string) => {
     console.log(`New call assigned: ${number} (DB ID: ${callId})`);
     
@@ -433,6 +437,12 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               callMapRef.current.delete(eventCallId);
               console.log(`📞 [dialerCallStateChanged] Chamada terminada - duração: ${duration}s`);
             }
+            
+            // CORREÇÃO: Atualizar active_calls_count após chamada terminar
+            // OTIMIZAÇÃO: Usar updateActiveCalls que já tem lógica de otimização
+            setTimeout(async () => {
+              await updateActiveCalls(false); // false = só atualiza se mudou
+            }, 500);
           } else if ((eventState === 'ACTIVE' || eventState === 'active') && !startTimesRef.current.has(eventCallId)) {
             startTimesRef.current.set(eventCallId, Date.now());
             console.log(`📞 [dialerCallStateChanged] Tempo de início registrado para ${eventCallId}`);
@@ -478,9 +488,35 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           if (event.state === 'disconnected') removeFromActive(event.callId);
           updateActiveCalls();
         }),
-        PbxMobile.addListener('activeCallsChanged', (event) => {
+        PbxMobile.addListener('activeCallsChanged', async (event) => {
           console.log('Event: activeCallsChanged', event.calls);
+          const currentCount = event.calls.length;
           setActiveCalls(event.calls);
+          
+          // CORREÇÃO: Sincronizar contagem de chamadas ativas com o dashboard
+          // OTIMIZAÇÃO: Só atualiza se o valor realmente mudou
+          if (deviceId && user && currentCount !== undefined) {
+            const lastCount = lastActiveCallsCountRef.current;
+            
+            // Só atualiza se o valor mudou
+            if (lastCount === null || lastCount !== currentCount) {
+              try {
+                await supabase
+                  .from('devices')
+                  .update({
+                    active_calls_count: currentCount,
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', deviceId)
+                  .eq('user_id', user.id);
+                
+                lastActiveCallsCountRef.current = currentCount;
+                console.log(`📊 [activeCallsChanged] Sincronizado active_calls_count: ${currentCount}${lastCount !== null ? ` (anterior: ${lastCount})` : ''}`);
+              } catch (error) {
+                console.error('❌ [activeCallsChanged] Erro ao sincronizar active_calls_count:', error);
+              }
+            }
+          }
         }),
         PbxMobile.addListener('dialerCampaignProgress', (progress) => {
           console.log('Event: dialerCampaignProgress', progress);
@@ -583,9 +619,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       startHeartbeat();
       
       // CORREÇÃO: Atualizar chamadas ativas periodicamente quando pareado
+      // OTIMIZAÇÃO: Intervalo aumentado para 30 segundos (antes era 2s) para reduzir carga no banco
+      // As atualizações em tempo real via eventos já garantem sincronização imediata
       const activeCallsInterval = setInterval(() => {
-        updateActiveCalls();
-      }, 2000); // Atualiza a cada 2 segundos
+        updateActiveCalls(false); // false = só atualiza se houver mudança
+      }, 30000); // Atualiza a cada 30 segundos (verificação periódica de segurança)
       
       // Listen for real-time updates on device status (subscription específica do dispositivo)
       const subscription = supabase
@@ -677,10 +715,37 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     }
   };
 
-  const updateActiveCalls = async () => {
+  const updateActiveCalls = async (forceSync: boolean = false) => {
     try {
       const result = await PbxMobile.getActiveCalls();
+      const currentCount = result.calls.length;
+      
       setActiveCalls(result.calls);
+      
+      // CORREÇÃO: Sincronizar contagem de chamadas ativas com o dashboard
+      // OTIMIZAÇÃO: Só atualiza o banco se o valor realmente mudou (evita atualizações desnecessárias)
+      if (deviceId && user && currentCount !== undefined) {
+        const lastCount = lastActiveCallsCountRef.current;
+        
+        // Só atualiza se o valor mudou OU se foi forçado (forceSync = true)
+        if (forceSync || lastCount === null || lastCount !== currentCount) {
+          try {
+            await supabase
+              .from('devices')
+              .update({
+                active_calls_count: currentCount,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', deviceId)
+              .eq('user_id', user.id);
+            
+            lastActiveCallsCountRef.current = currentCount;
+            console.log(`📊 [updateActiveCalls] Sincronizado active_calls_count: ${currentCount}${lastCount !== null && lastCount !== currentCount ? ` (anterior: ${lastCount})` : ''}`);
+          } catch (error) {
+            console.error('❌ [updateActiveCalls] Erro ao sincronizar active_calls_count:', error);
+          }
+        }
+      }
     } catch (error) {
       console.log('Error getting active calls:', error);
     }
@@ -756,30 +821,109 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   const endCall = async (callId: string) => {
     try {
       // Get database call ID from native call ID
-      const dbCallId = callMapRef.current.get(callId);
+      let dbCallId = callMapRef.current.get(callId);
+      
+      console.log(`📞 [endCall] Encerrando chamada manualmente: callId nativo=${callId}, dbCallId=${dbCallId}`);
+      
+      // CORREÇÃO: Se não encontrou o dbCallId no mapa, tentar buscar pelo número da chamada
+      if (!dbCallId) {
+        try {
+          // Buscar a chamada ativa para pegar o número
+          const activeCallsResult = await PbxMobile.getActiveCalls();
+          const activeCall = activeCallsResult.calls.find((call: any) => call.callId === callId);
+          
+          if (activeCall && activeCall.number) {
+            console.log(`📞 [endCall] Chamada ativa encontrada, número: ${activeCall.number}`);
+            
+            // Tentar encontrar pelo número no mapa de campanha
+            dbCallId = campaignNumberToDbCallIdRef.current.get(activeCall.number);
+            
+            // Se ainda não encontrou, buscar no banco de dados pela combinação device_id + number + status ativo
+            if (!dbCallId && deviceId) {
+              const { data: callData, error: callError } = await supabase
+                .from('calls')
+                .select('id')
+                .eq('device_id', deviceId)
+                .eq('number', activeCall.number)
+                .in('status', ['ringing', 'answered', 'active', 'dialing'])
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .single();
+              
+              if (!callError && callData) {
+                dbCallId = callData.id;
+                // Mapear para uso futuro
+                callMapRef.current.set(callId, dbCallId);
+                campaignNumberToDbCallIdRef.current.set(activeCall.number, dbCallId);
+                console.log(`✅ [endCall] dbCallId encontrado no banco: ${dbCallId}`);
+              }
+            }
+            
+            if (dbCallId) {
+              console.log(`✅ [endCall] dbCallId encontrado via número: ${dbCallId}`);
+              // Mapear para uso futuro
+              callMapRef.current.set(callId, dbCallId);
+            }
+          }
+        } catch (error) {
+          console.error('❌ [endCall] Erro ao buscar dbCallId:', error);
+        }
+      }
       
       // End call via native plugin
       await PbxMobile.endCall({ callId });
       
-      // Update database
+      // CORREÇÃO: Atualizar o banco mesmo que o evento dialerCallStateChanged seja disparado depois
+      // Isso garante que o dashboard veja a atualização imediatamente
+      
       if (dbCallId) {
-        const startTime = new Date();
-        await supabase
+        // Atualizar imediatamente o status, mas o evento dialerCallStateChanged vai calcular a duração correta
+        const startTime = startTimesRef.current.get(callId);
+        const updateData: any = {
+          status: 'ended',
+          updated_at: new Date().toISOString()
+        };
+        
+        // Se temos o startTime, calcular duração
+        if (startTime) {
+          const duration = Math.floor((Date.now() - startTime) / 1000);
+          updateData.duration = duration;
+          startTimesRef.current.delete(callId);
+          console.log(`📞 [endCall] Duração calculada: ${duration}s`);
+        }
+        
+        // Atualizar banco imediatamente para o dashboard ver rápido
+        const { error: updateError } = await supabase
           .from('calls')
-          .update({ 
-            status: 'ended',
-            duration: 0 // Will be calculated by database trigger if needed
-          })
+          .update(updateData)
           .eq('id', dbCallId);
         
-        callMapRef.current.delete(callId);
+        if (updateError) {
+          console.error(`❌ [endCall] Erro ao atualizar chamada ${dbCallId} para 'ended':`, JSON.stringify(updateError, null, 2));
+        } else {
+          console.log(`✅ [endCall] Status atualizado no banco imediatamente para chamada ${dbCallId}`);
+          
+          // Sincronizar active_calls_count também
+          // OTIMIZAÇÃO: Usar updateActiveCalls que já tem lógica de otimização
+          await updateActiveCalls(false); // false = só atualiza se mudou
+        }
+        
+        // O evento dialerCallStateChanged ainda vai ser disparado, mas o status já está 'ended'
+        // então não vai causar problema (idempotente)
+      } else {
+        console.warn(`⚠️ [endCall] dbCallId não encontrado para callId ${callId} - banco não será atualizado imediatamente, aguardando evento dialerCallStateChanged`);
       }
       
       toast({
         title: "Chamada encerrada",
       });
     } catch (error) {
-      console.error('Error ending call:', error);
+      console.error('❌ [endCall] Erro ao encerrar chamada:', error);
+      toast({
+        title: "Erro ao encerrar",
+        description: "Não foi possível encerrar a chamada",
+        variant: "destructive"
+      });
     } finally {
       // Always update the call list to reflect the real state
       updateActiveCalls();
@@ -1540,22 +1684,131 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         break;
         
       case 'end_call':
-        console.log('Processando comando end_call:', command.data);
+        console.log('📥 Processando comando end_call do dashboard:', command.data);
         // End specific call
         try {
-          if (command.data.callId) {
-            await PbxMobile.endCall({ callId: command.data.callId });
+          if (!command.data.callId) {
+            console.error('❌ [end_call] callId não fornecido no comando');
             toast({
-              title: "Chamada encerrada",
-              description: "Chamada encerrada pelo dashboard",
-              variant: "default"
+              title: "Erro ao encerrar",
+              description: "ID da chamada não fornecido",
+              variant: "destructive"
             });
+            break;
           }
+          
+          const dbCallId = command.data.callId; // ID do banco de dados
+          console.log(`📥 [end_call] Buscando callId nativo para dbCallId: ${dbCallId}`);
+          
+          // CORREÇÃO: O dashboard envia o dbCallId, precisamos encontrar o callId nativo
+          // Buscar no mapa reverso (dbCallId -> callId nativo)
+          let nativeCallId: string | null = null;
+          
+          // 1. Tentar encontrar no mapa callMapRef (callId nativo -> dbCallId)
+          for (const [nativeId, dbId] of callMapRef.current.entries()) {
+            if (dbId === dbCallId) {
+              nativeCallId = nativeId;
+              console.log(`✅ [end_call] CallId nativo encontrado no mapa: ${nativeCallId}`);
+              break;
+            }
+          }
+          
+          // 2. Se não encontrou no mapa, buscar nas chamadas ativas pelo número
+          if (!nativeCallId) {
+            console.log(`⚠️ [end_call] CallId nativo não encontrado no mapa, buscando nas chamadas ativas...`);
+            try {
+              // Buscar informações da chamada no banco para pegar o número
+              const { data: callData, error: callError } = await supabase
+                .from('calls')
+                .select('number, device_id')
+                .eq('id', dbCallId)
+                .single();
+              
+              if (!callError && callData) {
+                const callNumber = callData.number;
+                console.log(`📥 [end_call] Número da chamada encontrado: ${callNumber}`);
+                
+                // Buscar nas chamadas ativas pelo número
+                const activeCallsResult = await PbxMobile.getActiveCalls();
+                const matchingCall = activeCallsResult.calls.find((call: any) => call.number === callNumber);
+                
+                if (matchingCall) {
+                  nativeCallId = matchingCall.callId;
+                  // Adicionar ao mapa para uso futuro
+                  callMapRef.current.set(nativeCallId, dbCallId);
+                  console.log(`✅ [end_call] CallId nativo encontrado nas chamadas ativas: ${nativeCallId}`);
+                }
+              }
+            } catch (error) {
+              console.error('❌ [end_call] Erro ao buscar informações da chamada:', error);
+            }
+          }
+          
+          if (!nativeCallId) {
+            console.error(`❌ [end_call] Não foi possível encontrar callId nativo para dbCallId: ${dbCallId}`);
+            toast({
+              title: "Erro ao encerrar",
+              description: "Chamada não encontrada no dispositivo. Ela pode já ter sido encerrada.",
+              variant: "destructive"
+            });
+            // Ainda assim, atualizar o status no banco para 'ended' caso não esteja
+            try {
+              await supabase
+                .from('calls')
+                .update({ 
+                  status: 'ended',
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', dbCallId);
+              console.log(`✅ [end_call] Status atualizado para 'ended' no banco mesmo sem encontrar chamada ativa`);
+            } catch (dbError) {
+              console.error('❌ [end_call] Erro ao atualizar status no banco:', dbError);
+            }
+            break;
+          }
+          
+          console.log(`📞 [end_call] Encerrando chamada com callId nativo: ${nativeCallId}`);
+          await PbxMobile.endCall({ callId: nativeCallId });
+          
+          // Atualizar banco de dados
+          const startTime = startTimesRef.current.get(nativeCallId);
+          const updateData: any = {
+            status: 'ended',
+            updated_at: new Date().toISOString()
+          };
+          
+          if (startTime) {
+            const duration = Math.floor((Date.now() - startTime) / 1000);
+            updateData.duration = duration;
+            startTimesRef.current.delete(nativeCallId);
+            console.log(`📞 [end_call] Duração calculada: ${duration}s`);
+          }
+          
+          await supabase
+            .from('calls')
+            .update(updateData)
+            .eq('id', dbCallId);
+          
+          // Remover do mapa
+          callMapRef.current.delete(nativeCallId);
+          
+          // Atualizar contagem de chamadas ativas
+          // OTIMIZAÇÃO: Usar updateActiveCalls que já tem lógica de otimização
+          setTimeout(async () => {
+            await updateActiveCalls(false); // false = só atualiza se mudou
+          }, 500);
+          
+          console.log(`✅ [end_call] Chamada encerrada com sucesso`);
+          toast({
+            title: "Chamada encerrada",
+            description: "Chamada encerrada pelo dashboard",
+            variant: "default"
+          });
         } catch (error) {
-          console.error('Error ending call:', error);
+          console.error('❌ [end_call] Erro ao encerrar chamada:', error);
           toast({
             title: "Erro ao encerrar",
-            description: "Não foi possível encerrar a chamada",
+            description: error instanceof Error ? error.message : "Não foi possível encerrar a chamada",
             variant: "destructive"
           });
         }

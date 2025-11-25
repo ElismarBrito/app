@@ -27,6 +27,12 @@ export const useCallAssignments = ({
 }: UseCallAssignmentsOptions) => {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const processedCallsRef = useRef<Set<string>>(new Set());
+  const onNewCallRef = useRef(onNewCall);
+
+  // Keep callback ref updated without causing re-subscription
+  useEffect(() => {
+    onNewCallRef.current = onNewCall;
+  }, [onNewCall]);
 
   useEffect(() => {
     if (!deviceId || !enabled) {
@@ -65,7 +71,7 @@ export const useCallAssignments = ({
           // Only process calls in 'ringing' status
           if (newCall.status === 'ringing') {
             processedCallsRef.current.add(newCall.id);
-            onNewCall(newCall.number, newCall.id);
+            onNewCallRef.current(newCall.number, newCall.id);
           }
         }
       )
@@ -80,7 +86,7 @@ export const useCallAssignments = ({
         channelRef.current = null;
       }
     };
-  }, [deviceId, enabled, onNewCall]);
+  }, [deviceId, enabled]); // Removido onNewCall das dependências - usando useRef
 
   return {
     clearProcessedCalls: () => {
