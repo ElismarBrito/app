@@ -49,6 +49,8 @@ export const CallHistoryManager = ({ deviceId }: { deviceId: string }) => {
 
   const loadCallHistory = async () => {
     try {
+      // Usa índice composto idx_calls_device_start_time para ordenação
+      // Se precisar filtrar por status ativo, usar idx_calls_device_status
       const { data, error } = await supabase
         .from('calls')
         .select('*')
@@ -62,6 +64,26 @@ export const CallHistoryManager = ({ deviceId }: { deviceId: string }) => {
       console.error('Error loading call history:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Função otimizada para buscar apenas chamadas ativas (usa idx_calls_device_status)
+  const loadActiveCallHistory = async () => {
+    try {
+      // Usa índice composto idx_calls_device_status - filtro no banco
+      const { data, error } = await supabase
+        .from('calls')
+        .select('*')
+        .eq('device_id', deviceId)
+        .in('status', ['ringing', 'answered', 'dialing'])
+        .order('start_time', { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error loading active call history:', error);
+      return [];
     }
   };
 

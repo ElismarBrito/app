@@ -64,6 +64,7 @@ export const usePBXData = () => {
     if (!user) return
 
     try {
+      // Usa índice composto idx_devices_user_status quando filtra por status
       const { data, error } = await supabase
         .from('devices' as any)
         .select('id, name, status, paired_at, last_seen, user_id, internet_status, signal_status, line_blocked, active_calls_count')
@@ -136,6 +137,7 @@ export const usePBXData = () => {
     if (!user) return []
 
     try {
+      // Usa índice composto idx_calls_user_status para queries com filtro de status
       const { data, error } = await supabase
         .from('devices' as any)
         .select('id, name, status, paired_at, last_seen, user_id, internet_status, signal_status, line_blocked, active_calls_count')
@@ -198,12 +200,13 @@ export const usePBXData = () => {
       return []
     }
   }, [user])
-
+  
   // Fetch number lists - otimizado com select específico
   const fetchLists = useCallback(async () => {
     if (!user) return
 
     try {
+      // Usa índice composto idx_number_lists_user_active quando filtra por is_active
       const { data, error } = await supabase
         .from('number_lists' as any)
         .select('id, name, numbers, is_active, user_id, created_at, ddi_prefix')
@@ -237,8 +240,8 @@ export const usePBXData = () => {
       return []
     }
   }, [user])
-
-  // Calculate stats (memoized to avoid unnecessary recalculations)
+  
+  // Calculate stats (memoized para evitar recalculações desnecessárias)
   // OTIMIZADO: Usa dados já filtrados para evitar filtros no cliente
   const calculateStats = useCallback(() => {
     // Usa active_calls_count do trigger em vez de filtrar manualmente
