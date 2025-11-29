@@ -78,7 +78,7 @@ export const useDeviceValidation = (devices: Device[], updateDeviceStatus: (devi
 
     // Initial validation apenas uma vez
     const initialTimeout = setTimeout(() => {
-      validateAllDevices();
+    validateAllDevices();
     }, 2000); // Delay inicial de 2 segundos para evitar validação imediata
 
     // Set up periodic validation every 30 seconds

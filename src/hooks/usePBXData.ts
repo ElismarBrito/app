@@ -200,7 +200,7 @@ export const usePBXData = () => {
       return []
     }
   }, [user])
-  
+
   // Fetch number lists - otimizado com select específico
   const fetchLists = useCallback(async () => {
     if (!user) return

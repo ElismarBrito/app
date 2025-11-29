@@ -1848,6 +1848,21 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         });
         break;
         
+      case 'stop_campaign':
+        console.log('📥 Processando comando stop_campaign do dashboard');
+        try {
+          // Usar a mesma lógica do handleStopCampaign para garantir consistência
+          await handleStopCampaign();
+        } catch (error) {
+          console.error('❌ [stop_campaign] Erro ao encerrar campanha:', error);
+          toast({
+            title: "Erro ao encerrar campanha",
+            description: error instanceof Error ? error.message : "Não foi possível encerrar a campanha",
+            variant: "destructive"
+          });
+        }
+        break;
+        
       case 'unpair':
         console.log('Processando comando unpair do dashboard');
         // Desparear dispositivo quando receber comando do dashboard
@@ -1882,7 +1897,90 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
   const handlePauseCampaign = () => PbxMobile.pauseCampaign();
   const handleResumeCampaign = () => PbxMobile.resumeCampaign();
-  const handleStopCampaign = () => PbxMobile.stopCampaign();
+  const handleStopCampaign = async () => {
+    try {
+      // 1. Parar campanha no native
+      await PbxMobile.stopCampaign();
+      
+      // 2. Aguardar um pouco para as chamadas serem desconectadas
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // 3. Buscar TODAS as chamadas ativas do dispositivo no banco e atualizar para 'ended'
+      if (!deviceId) {
+        console.warn('⚠️ [handleStopCampaign] deviceId não disponível, não é possível atualizar chamadas no banco');
+        return;
+      }
+      
+      console.log(`🛑 [handleStopCampaign] Buscando todas as chamadas ativas do dispositivo ${deviceId}...`);
+      
+      // Buscar todas as chamadas ativas do dispositivo que não estão como 'ended'
+      const { data: activeCalls, error: fetchError } = await supabase
+        .from('calls')
+        .select('id, start_time, status')
+        .eq('device_id', deviceId)
+        .in('status', ['queued', 'dialing', 'ringing', 'answered']);
+      
+      if (fetchError) {
+        console.error('❌ [handleStopCampaign] Erro ao buscar chamadas ativas:', fetchError);
+      } else if (activeCalls && activeCalls.length > 0) {
+        console.log(`📞 [handleStopCampaign] Encontradas ${activeCalls.length} chamadas ativas para atualizar`);
+        
+        // Atualizar cada chamada para 'ended' com duração calculada
+        const updates = activeCalls.map(async (call) => {
+          const updateData: any = {
+            status: 'ended',
+            updated_at: new Date().toISOString()
+          };
+          
+          // Calcular duração se tiver start_time
+          if (call.start_time) {
+            const startTime = new Date(call.start_time).getTime();
+            const duration = Math.floor((Date.now() - startTime) / 1000);
+            updateData.duration = duration;
+          }
+          
+          const { error: updateError } = await supabase
+            .from('calls')
+            .update(updateData)
+            .eq('id', call.id);
+          
+          if (updateError) {
+            console.error(`❌ [handleStopCampaign] Erro ao atualizar chamada ${call.id}:`, updateError);
+          } else {
+            console.log(`✅ [handleStopCampaign] Chamada ${call.id} atualizada para 'ended' (status anterior: ${call.status})`);
+          }
+        });
+        
+        await Promise.all(updates);
+        
+        // Atualizar active_calls_count do dispositivo
+        await updateActiveCalls(true); // force = true para garantir atualização
+        
+        console.log(`✅ [handleStopCampaign] Todas as ${activeCalls.length} chamadas foram atualizadas para 'ended'`);
+      } else {
+        console.log(`ℹ️ [handleStopCampaign] Nenhuma chamada ativa encontrada para atualizar`);
+      }
+      
+      // Limpar mapeamentos da campanha
+      campaignNumberToDbCallIdRef.current.clear();
+      callMapRef.current.clear();
+      
+      toast({
+        title: "Campanha encerrada",
+        description: activeCalls && activeCalls.length > 0 
+          ? `${activeCalls.length} chamada(s) foram atualizadas para encerradas`
+          : "Campanha foi encerrada",
+        variant: "default"
+      });
+    } catch (error) {
+      console.error('❌ [handleStopCampaign] Erro ao encerrar campanha:', error);
+      toast({
+        title: "Erro ao encerrar campanha",
+        description: error instanceof Error ? error.message : "Não foi possível encerrar a campanha",
+        variant: "destructive"
+      });
+    }
+  };
 
   if (isStandalone) {
     // CORREÇÃO: Mostrar discador apenas se estiver pareado E (configurado OU houver chamadas/campanha)

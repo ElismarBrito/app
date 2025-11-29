@@ -73,8 +73,14 @@ class MyInCallService : InCallService() {
     }
     
     fun getActiveCalls(): List<Map<String, Any>> {
-        // CORREÇÃO: Ordena por startTime (mais recente primeiro) para aparecer na ordem correta
+        // CORREÇÃO: Filtra apenas chamadas realmente ativas (não desconectadas)
+        // e ordena por startTime (mais recente primeiro) para aparecer na ordem correta
         return activeCalls.values
+            .filter { wrapper ->
+                // Filtra apenas chamadas que não estão desconectadas
+                wrapper.call.state != Call.STATE_DISCONNECTED &&
+                wrapper.call.state != Call.STATE_DISCONNECTING
+            }
             .sortedByDescending { it.call.details?.creationTimeMillis ?: 0L }
             .map { wrapper ->
                 mapOf(
@@ -224,6 +230,13 @@ class MyInCallService : InCallService() {
         val callback = object : Call.Callback() {
             override fun onStateChanged(call: Call, state: Int) {
                 super.onStateChanged(call, state)
+                
+                // CORREÇÃO: Remove chamadas desconectadas do mapa para evitar contagem incorreta
+                if (state == Call.STATE_DISCONNECTED || state == Call.STATE_DISCONNECTING) {
+                    Log.d(TAG, "📴 Chamada desconectada, removendo do mapa: $callId ($phoneNumber)")
+                    activeCalls.remove(callId)
+                    call.unregisterCallback(this)
+                }
                 
                 // Get the PowerDialerManager instance
                 val powerDialerManager = ServiceRegistry.getPlugin()?.powerDialerManager

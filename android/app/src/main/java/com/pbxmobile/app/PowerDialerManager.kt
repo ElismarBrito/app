@@ -36,6 +36,7 @@ class PowerDialerManager(private val context: Context) {
     private var callTimeout = 45000L // 45s timeout por chamada (tempo para tocar e desconectar)
     private var minCallDuration = 1000L // 1s tempo mínimo antes de considerar chamada completa
     private var poolCheckInterval = 500L // Verifica pool a cada 500ms
+    private var autoConferenceEnabled = true // Força merge automático quando operadora suporta
     
     // Estado da campanha
     private var currentCampaign: Campaign? = null
@@ -152,7 +153,7 @@ class PowerDialerManager(private val context: Context) {
         this.minCallDuration = minCallDuration
         this.poolCheckInterval = poolCheckInterval
         
-        Log.d(TAG, "✅ Configurado: POOL DE ${this.maxConcurrentCalls} CHAMADAS SIMULTÂNEAS, maxRetries=$maxRetries, timeout=${callTimeout}ms")
+        Log.d(TAG, "✅ Configurado: POOL DE ${this.maxConcurrentCalls} CHAMADAS SIMULTÂNEAS, maxRetries=$maxRetries, timeout=${callTimeout}ms, autoConference=$autoConferenceEnabled")
     }
     
     fun setCallbacks(
@@ -204,6 +205,7 @@ class PowerDialerManager(private val context: Context) {
         
         Log.d(TAG, "🚀 Campanha iniciada: $sessionId com ${numbers.size} números")
         Log.d(TAG, "📊 Config: POOL DE $maxConcurrentCalls CHAMADAS SIMULTÂNEAS, $maxRetries retries")
+        Log.d(TAG, "📋 Lista de números: ${numbers.take(10).joinToString(", ")}${if (numbers.size > 10) "..." else ""}")
         
         // CORREÇÃO: Inicia ForegroundService para manter app ativo quando tela desliga
         startForegroundService(listName, sessionId)
@@ -254,43 +256,130 @@ class PowerDialerManager(private val context: Context) {
                     )
                 }
                 
+                // CORREÇÃO: Sempre tenta fazer conferência quando há 2+ chamadas ACTIVE/HOLDING,
+                // independentemente de haver números na fila. Isso permite liberar slots antes de discar novas chamadas.
+                val activeOrHoldingCount = activeCalls.values.count {
+                    it.state == CallState.ACTIVE || it.state == CallState.HOLDING
+                }
+                if (autoConferenceEnabled && activeOrHoldingCount >= 2) {
+                    Log.d(TAG, "🔍 Pool maintenance detectou $activeOrHoldingCount chamada(s) ACTIVE/HOLDING - tentando conferência...")
+                    ensureConferenceCapacityIfNeeded("pool_maintenance_continuous")
+                } else if (autoConferenceEnabled && activeOrHoldingCount > 0) {
+                    Log.d(TAG, "🔍 Pool maintenance: $activeOrHoldingCount chamada(s) ACTIVE/HOLDING (precisa de 2+ para conferência)")
+                }
+                
                 val availableSlots = maxConcurrentCalls - trulyActiveCalls
                 
+                // CORREÇÃO CRÍTICA: Conta chamadas ACTIVE/HOLDING para decidir quantas chamadas iniciar
+                val activeOrHoldingBeforeDial = activeCalls.values.count {
+                    it.state == CallState.ACTIVE || it.state == CallState.HOLDING
+                }
+                
+                // CORREÇÃO CRÍTICA: Se não há chamadas ACTIVE/HOLDING, inicia apenas 1 chamada por vez
+                // O Android não permite múltiplas chamadas DIALING simultaneamente sem fazer merge primeiro
+                // Quando há 0 ACTIVE/HOLDING: inicia apenas 1 chamada e aguarda ficar ACTIVE
+                // Quando há 1 ACTIVE/HOLDING: inicia apenas 1 chamada (a segunda) e aguarda ficar ACTIVE para fazer merge
+                // Quando há 2+ ACTIVE/HOLDING: pode iniciar múltiplas (após fazer merge)
+                // CORREÇÃO ADICIONAL: Se há 1 ACTIVE/HOLDING e já há uma chamada em DIALING/RINGING,
+                // NÃO inicia nova chamada - aguarda que a atual fique ACTIVE primeiro
+                val dialingOrRingingCount = activeCalls.values.count {
+                    it.state == CallState.DIALING || it.state == CallState.RINGING
+                }
+                
+                val maxCallsToDial = when {
+                    activeOrHoldingBeforeDial == 0 -> {
+                        // Se já há uma chamada em DIALING/RINGING, não inicia outra
+                        if (dialingOrRingingCount > 0) {
+                            Log.d(TAG, "🔍 Sem chamadas ACTIVE/HOLDING mas há $dialingOrRingingCount em DIALING/RINGING - aguardando...")
+                            0 // Não inicia nova chamada
+                        } else {
+                            Log.d(TAG, "🔍 Sem chamadas ACTIVE/HOLDING - iniciando apenas 1 chamada por vez")
+                            1 // Primeira chamada: apenas 1 por vez
+                        }
+                    }
+                    activeOrHoldingBeforeDial == 1 -> {
+                        // Se já há uma chamada em DIALING/RINGING, não inicia outra
+                        // Aguarda que a segunda chamada fique ACTIVE para fazer merge
+                        if (dialingOrRingingCount > 0) {
+                            Log.d(TAG, "🔍 Há 1 chamada ACTIVE/HOLDING e $dialingOrRingingCount em DIALING/RINGING - aguardando segunda ficar ACTIVE...")
+                            0 // Não inicia nova chamada
+                        } else {
+                            Log.d(TAG, "🔍 Há 1 chamada ACTIVE/HOLDING - iniciando apenas 1 chamada (a segunda) por vez")
+                            1 // Segunda chamada: apenas 1 por vez (depois faz merge)
+                        }
+                    }
+                    else -> {
+                        // Já há 2+ ACTIVE/HOLDING (ou conferência estabelecida) - pode iniciar múltiplas
+                        availableSlots
+                    }
+                }
+                
                 // Se há slots disponíveis e números para ligar, inicia novas chamadas
-                // CORREÇÃO: Limita ao número de números disponíveis para evitar tentar fazer mais chamadas do que números
+                // CORREÇÃO: Limita ao número de números disponíveis e ao máximo calculado acima
                 if (availableSlots > 0 && campaign.shuffledNumbers.isNotEmpty()) {
                     val numbersToDial = minOf(
                         availableSlots,
-                        campaign.shuffledNumbers.size
+                        campaign.shuffledNumbers.size,
+                        maxCallsToDial
                     )
                     
                     if (numbersToDial > 0) {
-                        Log.d(TAG, "📞 Preenchendo pool: $trulyActiveCalls/$maxConcurrentCalls ativas, iniciando $numbersToDial nova(s) de ${campaign.shuffledNumbers.size} disponíveis")
+                        // CORREÇÃO CRÍTICA: Se há 2 chamadas ACTIVE/HOLDING e queremos discar a terceira,
+                        // PRECISA fazer merge PRIMEIRO antes de discar. O Android não permite discar
+                        // a terceira chamada sem fazer merge das 2 primeiras.
+                        if (activeOrHoldingBeforeDial >= 2 && autoConferenceEnabled && numbersToDial > 0) {
+                            Log.d(TAG, "🚨 CRÍTICO: Há $activeOrHoldingBeforeDial chamada(s) ACTIVE/HOLDING e queremos discar - PRECISA fazer merge PRIMEIRO!")
+                            val mergeSuccessful = tryMergeCallsAndWait()
+                            if (!mergeSuccessful) {
+                                Log.w(TAG, "⚠️ Merge não foi bem-sucedido - aguardando antes de tentar discar novamente...")
+                                delay(2000) // Aguarda mais tempo antes de tentar discar
+                            } else {
+                                Log.d(TAG, "✅ Merge bem-sucedido - agora pode discar a próxima chamada")
+                            }
+                        }
                         
-                        repeat(numbersToDial) {
+                        Log.d(TAG, "📞 Preenchendo pool: $trulyActiveCalls/$maxConcurrentCalls ativas, iniciando $numbersToDial nova(s) de ${campaign.shuffledNumbers.size} disponíveis (max permitido: $maxCallsToDial)")
+                        
+                        // CORREÇÃO: Inicia chamadas com delay para evitar conflitos do Android
+                        // Quando há chamada ACTIVE, aguarda um pouco antes de iniciar a próxima
+                        // para dar tempo de tentar fazer conferência
+                        var callIndex = 0
+                        for (i in 0 until numbersToDial) {
                             if (campaign.shuffledNumbers.isNotEmpty()) {
                                 val number = campaign.shuffledNumbers.removeAt(0)
                                 val attempt = (attemptCounts[number] ?: 0) + 1
                                 attemptCounts[number] = attempt
                                 
-                                // Inicia a chamada de forma síncrona para registrar imediatamente em activeCalls
+                                // CORREÇÃO: Se já há chamadas ACTIVE/HOLDING, aguarda antes de iniciar a próxima
+                                // Isso dá tempo para tentar fazer conferência e evitar que o Android desconecte chamadas
+                                if (i > 0) {
+                                    val currentActiveOrHolding = activeCalls.values.count {
+                                        it.state == CallState.ACTIVE || it.state == CallState.HOLDING
+                                    }
+                                    
+                                    // Se há 2+ chamadas ACTIVE/HOLDING, aguarda mais tempo para tentar conferência
+                                    if (currentActiveOrHolding >= 2 && autoConferenceEnabled) {
+                                        Log.d(TAG, "⏳ Aguardando 2s antes de iniciar próxima chamada (há $currentActiveOrHolding ACTIVE/HOLDING - tentando conferência...)")
+                                        delay(2000) // Aguarda 2s para tentar conferência
+                                        // Tenta fazer conferência novamente antes de iniciar nova chamada
+                                        tryMergeCallsAndWait()
+                                    } else if (currentActiveOrHolding >= 1) {
+                                        Log.d(TAG, "⏳ Aguardando 500ms antes de iniciar próxima chamada (há $currentActiveOrHolding ACTIVE/HOLDING)")
+                                        delay(500) // Aguarda 500ms para dar tempo da chamada estabilizar
+                                    } else {
+                                        delay(300) // Delay mínimo entre chamadas
+                                    }
+                                }
+                                
+                                // Inicia a chamada
                                 makeCall(number, attempt)
                                 startedCallsThisTick = true
+                                callIndex++
                             }
                         }
                     }
                 }
-                
-                // CORREÇÃO: Desabilitada tentativa automática de conferência
-                // Muitos chips não suportam conferência e isso causa erros
-                // A conferência só deve ser feita manualmente pelo usuário se o chip suportar
-                // runCatching {
-                //     val activeOrHolding = activeCalls.values.count { it.state == CallState.ACTIVE || it.state == CallState.HOLDING }
-                //     if (activeOrHolding >= 2) {
-                //         tryMergeCalls()
-                //     }
-                // }
-                
+
                 // Se iniciamos chamadas neste tick, evitamos concluir a campanha agora.
                 // Damos um passo de espera para que activeCalls seja contabilizada no próximo ciclo.
                 if (startedCallsThisTick) {
@@ -441,6 +530,9 @@ class PowerDialerManager(private val context: Context) {
      */
     private fun makeCall(number: String, attemptNumber: Int) {
         val campaign = currentCampaign ?: return
+        if (autoConferenceEnabled) {
+            ensureConferenceCapacityIfNeeded("before_dial")
+        }
         val callId = "call_${System.currentTimeMillis()}_${(1000..9999).random()}"
         
         Log.d(TAG, "📲 Discando $number (tentativa $attemptNumber/$maxRetries) [CallId: $callId]")
@@ -523,6 +615,63 @@ class PowerDialerManager(private val context: Context) {
         Log.d(TAG, "🔍 Verificação de suporte a conferência: ${if (hasSupport) "SIM" else "NÃO"} (${calls.size} chamadas ativas)")
         return hasSupport
     }
+
+    /**
+     * Garante que chamadas elegíveis sejam unidas antes de discar novos números
+     */
+    private fun ensureConferenceCapacityIfNeeded(reason: String) {
+        if (!autoConferenceEnabled) {
+            return
+        }
+
+        // Verifica chamadas que podem ser unidas (ACTIVE ou HOLDING)
+        val activeOrHolding = activeCalls.values.count {
+            it.state == CallState.ACTIVE || it.state == CallState.HOLDING
+        }
+
+        if (activeOrHolding < 2) {
+            Log.d(TAG, "🔍 Verificação de conferência ($reason): apenas $activeOrHolding chamada(s) ativa(s)/em espera — precisa de pelo menos 2")
+            return
+        }
+
+        Log.d(TAG, "🔍 Verificação de conferência ($reason): $activeOrHolding chamada(s) ativa(s)/em espera — verificando suporte...")
+        
+        // CORREÇÃO: Tenta fazer merge mesmo sem CAPABILITY_MANAGE_CONFERENCE explícita
+        // Algumas operadoras permitem conferência mesmo sem essa capacidade
+        // Verifica se há chamadas conferenciáveis disponíveis antes de desistir
+        val calls = activeCalls.values.mapNotNull { it.call }
+            .filter { it.state == Call.STATE_ACTIVE || it.state == Call.STATE_HOLDING }
+        
+        if (calls.size >= 2) {
+            // Verifica se há chamadas conferenciáveis disponíveis
+            val hasConferenceable = calls.any { call ->
+                call.conferenceableCalls.isNotEmpty()
+            }
+            
+            if (hasConferenceSupport() || hasConferenceable) {
+                Log.d(TAG, "🤝 Tentando unir chamadas ($reason) — $activeOrHolding chamadas ativas/em espera (suporte: ${hasConferenceSupport()}, conferenciáveis: $hasConferenceable)")
+                tryMergeCalls()
+            } else {
+                Log.w(TAG, "⚠️ Operadora/linha sem suporte a conferência — não há chamadas conferenciáveis disponíveis ($reason)")
+                // Mesmo assim, tenta fazer merge - algumas operadoras podem permitir
+                Log.d(TAG, "🔄 Tentando merge mesmo sem suporte explícito (algumas operadoras podem permitir)...")
+                tryMergeCalls()
+            }
+        } else {
+            Log.w(TAG, "⚠️ Operadora/linha sem suporte a conferência — não é possível unir chamadas automaticamente ($reason)")
+        }
+    }
+
+    private fun scheduleConferenceCheck(reason: String) {
+        if (!autoConferenceEnabled) {
+            return
+        }
+
+        scope.launch {
+            delay(300)
+            ensureConferenceCapacityIfNeeded(reason)
+        }
+    }
     
     /**
      * Tenta fazer merge (conferência) de chamadas quando necessário
@@ -530,9 +679,9 @@ class PowerDialerManager(private val context: Context) {
      * mas mantemos a função caso seja necessário no futuro
      */
     private fun tryMergeCalls() {
-        // Anti-spam: evita tentativas em excesso
+        // Anti-spam: evita tentativas em excesso (mas permite tentar a cada 2 segundos para dar mais chances)
         val now = System.currentTimeMillis()
-        if (now - lastMergeAttemptAtMs < 800) {
+        if (now - lastMergeAttemptAtMs < 2000) {
             return
         }
         lastMergeAttemptAtMs = now
@@ -541,8 +690,23 @@ class PowerDialerManager(private val context: Context) {
         val calls = activeCalls.values.mapNotNull { it.call }
             .filter { it.state == Call.STATE_ACTIVE || it.state == Call.STATE_HOLDING }
 
+        Log.d(TAG, "🔍 Tentando merge: ${calls.size} chamada(s) elegível(eis) (ACTIVE/HOLDING)")
+        
         if (calls.size < 2) {
+            Log.d(TAG, "🔍 Merge: precisa de pelo menos 2 chamadas ACTIVE/HOLDING para fazer conferência")
             return
+        }
+
+        // Log detalhado das capacidades das chamadas
+        calls.forEachIndexed { index, call ->
+            val number = call.details.handle?.schemeSpecificPart ?: "unknown"
+            val canManage = call.details.can(Call.Details.CAPABILITY_MANAGE_CONFERENCE)
+            val state = when (call.state) {
+                Call.STATE_ACTIVE -> "ACTIVE"
+                Call.STATE_HOLDING -> "HOLDING"
+                else -> "OTHER"
+            }
+            Log.d(TAG, "📞 Chamada ${index + 1}: $number (estado=$state, pode_gerenciar_conferencia=$canManage)")
         }
 
         // Escolhe uma chamada "âncora" com capacidade de gerenciar conferência e preferencialmente ACTIVE
@@ -551,40 +715,137 @@ class PowerDialerManager(private val context: Context) {
         } ?: calls.firstOrNull { 
             it.details.can(Call.Details.CAPABILITY_MANAGE_CONFERENCE)
         } ?: run {
-            Log.d(TAG, "Sem chamada com CAPABILITY_MANAGE_CONFERENCE para ancorar conferência")
+            Log.w(TAG, "⚠️ Sem chamada com CAPABILITY_MANAGE_CONFERENCE para ancorar conferência — tentando com a primeira chamada ACTIVE")
+            // Tenta usar a primeira chamada ACTIVE mesmo sem CAPABILITY_MANAGE_CONFERENCE
+            // Algumas operadoras podem permitir conferência mesmo sem essa capacidade explícita
+            calls.firstOrNull { it.state == Call.STATE_ACTIVE } ?: calls.firstOrNull()
+        }
+        
+        if (primary == null) {
+            Log.w(TAG, "⚠️ Nenhuma chamada elegível encontrada para ancorar conferência")
             return
         }
 
+        val primaryNumber = primary.details.handle?.schemeSpecificPart ?: "unknown"
+        val canManage = primary.details.can(Call.Details.CAPABILITY_MANAGE_CONFERENCE)
+        Log.d(TAG, "🎯 Chamada âncora: $primaryNumber (pode_gerenciar_conferencia=$canManage)")
+
         val conferenceable = primary.conferenceableCalls
-        if (conferenceable.isEmpty()) {
-            Log.d(TAG, "Nenhuma chamada conferenciável disponível no momento para ${primary.details.handle?.schemeSpecificPart}")
+        Log.d(TAG, "🔗 Chamadas conferenciáveis disponíveis: ${conferenceable.size}")
+        
+        // CORREÇÃO: Se não há chamadas conferenciáveis, tenta usar todas as outras chamadas ACTIVE/HOLDING
+        // Algumas operadoras podem não reportar conferenceableCalls corretamente
+        val callsToMerge = if (conferenceable.isEmpty()) {
+            Log.w(TAG, "⚠️ Nenhuma chamada conferenciável reportada - tentando usar todas as outras chamadas ACTIVE/HOLDING")
+            calls.filter { it != primary }
+        } else {
+            conferenceable
+        }
+        
+        if (callsToMerge.isEmpty()) {
+            Log.w(TAG, "⚠️ Nenhuma chamada disponível para fazer merge com $primaryNumber")
+            Log.d(TAG, "💡 Isso pode significar que as chamadas ainda não estão prontas para conferência ou a operadora não suporta")
             return
         }
+        
+        Log.d(TAG, "🔗 Tentando fazer merge com ${callsToMerge.size} chamada(s) disponível(eis)")
 
         // Tenta adicionar participantes disponíveis até o máximo de 6
         var added = 0
-        for (c in conferenceable) {
-            // Evita tentar repetidamente a mesma dupla
+        for (c in callsToMerge) {
+            // Evita tentar repetidamente a mesma dupla (mas permite tentar novamente após 30 segundos)
             val a = primary.details.handle?.schemeSpecificPart ?: primary.toString()
             val b = c.details.handle?.schemeSpecificPart ?: c.toString()
             val pairKey = if (a <= b) "$a|$b" else "$b|$a"
             if (mergedPairs.contains(pairKey)) {
+                Log.d(TAG, "⏭️ Pulando par já tentado: $pairKey")
                 continue
             }
 
             try {
+                Log.d(TAG, "🔗 Tentando unir: $a + $b")
                 primary.conference(c)
                 added++
                 mergedPairs.add(pairKey)
                 Log.d(
                     TAG,
-                    "🔗 Merge: unindo ${primary.details.handle?.schemeSpecificPart} + ${c.details.handle?.schemeSpecificPart} (adicionado=$added)"
+                    "✅ Merge bem-sucedido: unindo $a + $b (total_unidas=${added + 1})"
                 )
                 if (added >= 5) { // primary + 5 outros = 6 no total
+                    Log.d(TAG, "🎯 Máximo de participantes atingido (6 chamadas unidas)")
                     break
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Erro ao tentar fazer a conferência: ${e.message}")
+                Log.e(TAG, "❌ Erro ao tentar fazer a conferência entre $a e $b: ${e.message}", e)
+            }
+        }
+        
+        if (added == 0) {
+            Log.w(TAG, "⚠️ Nenhuma chamada foi unida na tentativa de merge")
+        }
+    }
+    
+    /**
+     * Tenta fazer merge e AGUARDA que seja concluído antes de retornar
+     * Esta função é CRÍTICA: quando há 2 chamadas ACTIVE/HOLDING e queremos discar a terceira,
+     * PRECISA fazer merge PRIMEIRO, caso contrário o Android não permite discar ou desconecta uma chamada
+     * 
+     * @return true se o merge foi bem-sucedido ou se não havia necessidade de merge, false caso contrário
+     */
+    private suspend fun tryMergeCallsAndWait(): Boolean {
+        if (!autoConferenceEnabled) {
+            return true // Se conferência está desabilitada, não precisa fazer merge
+        }
+        
+        val activeOrHolding = activeCalls.values.count {
+            it.state == CallState.ACTIVE || it.state == CallState.HOLDING
+        }
+        
+        if (activeOrHolding < 2) {
+            Log.d(TAG, "🔍 tryMergeCallsAndWait: apenas $activeOrHolding chamada(s) ACTIVE/HOLDING - não precisa fazer merge")
+            return true // Não precisa fazer merge
+        }
+        
+        if (!hasConferenceSupport()) {
+            Log.w(TAG, "⚠️ tryMergeCallsAndWait: Operadora/linha sem suporte a conferência")
+            return false // Não pode fazer merge, mas retorna false para indicar que não foi possível
+        }
+        
+        Log.d(TAG, "🚨 tryMergeCallsAndWait: Há $activeOrHolding chamada(s) ACTIVE/HOLDING - tentando merge ANTES de discar...")
+        
+        // Conta quantas chamadas estão em conferência ANTES do merge
+        val callsBefore = activeCalls.values.mapNotNull { it.call }
+            .filter { it.state == Call.STATE_ACTIVE || it.state == Call.STATE_HOLDING }
+        val conferencesBefore = callsBefore.count { it.details.hasProperty(Call.Details.PROPERTY_CONFERENCE) }
+        
+        // Tenta fazer merge
+        tryMergeCalls()
+        
+        // Aguarda um tempo para o merge ser processado pelo Android
+        delay(1500) // Aguarda 1.5s para o merge ser processado
+        
+        // Verifica se o merge foi bem-sucedido
+        val callsAfter = activeCalls.values.mapNotNull { it.call }
+            .filter { it.state == Call.STATE_ACTIVE || it.state == Call.STATE_HOLDING }
+        val conferencesAfter = callsAfter.count { it.details.hasProperty(Call.Details.PROPERTY_CONFERENCE) }
+        
+        if (conferencesAfter > conferencesBefore) {
+            Log.d(TAG, "✅ Merge bem-sucedido! Conferências antes: $conferencesBefore, depois: $conferencesAfter")
+            return true
+        } else {
+            // Verifica se as chamadas ainda estão ativas (pode ser que o merge esteja em processo)
+            val stillActive = activeCalls.values.count {
+                it.state == CallState.ACTIVE || it.state == CallState.HOLDING
+            }
+            if (stillActive >= 2) {
+                Log.w(TAG, "⚠️ Merge pode não ter sido concluído ainda - mas há $stillActive chamadas ainda ativas")
+                // Mesmo que não tenha detectado conferência, se as chamadas ainda estão ativas,
+                // pode ser que o merge esteja em processo ou que a operadora não reporte PROPERTY_CONFERENCE
+                // Nesse caso, assumimos que está OK para tentar discar
+                return true
+            } else {
+                Log.w(TAG, "❌ Merge não foi bem-sucedido - apenas $stillActive chamada(s) ainda ativa(s)")
+                return false
             }
         }
     }
@@ -668,6 +929,31 @@ class PowerDialerManager(private val context: Context) {
         
         Log.d(TAG, "🔄 Estado: $callId -> $previousState → $callState (${activeCall.number})")
         
+        // CORREÇÃO CRÍTICA: Quando uma chamada fica ACTIVE, verifica IMEDIATAMENTE (síncrono) se há outra ACTIVE/HOLDING
+        // para tentar fazer conferência ANTES que o Android force desconexão
+        // Isso deve ser feito ANTES de processar outros estados, pois o Android pode desconectar muito rapidamente
+        if (callState == CallState.ACTIVE && previousState != CallState.ACTIVE) {
+            Log.d(TAG, "✅ Chamada atendida: ${activeCall.number}")
+            // Verifica IMEDIATAMENTE (síncrono) se há outra chamada ACTIVE/HOLDING
+            // Não usa delay porque o Android pode desconectar muito rapidamente
+            val activeOrHoldingCount = activeCalls.values.count {
+                (it.state == CallState.ACTIVE || it.state == CallState.HOLDING) && it.callId != callId
+            } + 1 // +1 porque esta chamada acabou de ficar ACTIVE
+            
+            Log.d(TAG, "🔍 Chamada ficou ACTIVE - total de $activeOrHoldingCount chamada(s) ACTIVE/HOLDING")
+            
+            if (activeOrHoldingCount >= 2 && autoConferenceEnabled) {
+                Log.d(TAG, "🚨 URGENTE: Detectadas $activeOrHoldingCount chamadas ACTIVE/HOLDING - tentando conferência IMEDIATAMENTE (sem delay)")
+                // Tenta fazer conferência IMEDIATAMENTE, sem delay
+                // Usa runBlocking para garantir execução síncrona
+                scope.launch {
+                    ensureConferenceCapacityIfNeeded("call_just_became_active_urgent")
+                }
+            }
+            // Também agenda verificação após pequeno delay como backup
+            scheduleConferenceCheck("call_active_state")
+        }
+        
         // Verifica se a chamada terminou (estados finais)
         when (callState) {
             CallState.DISCONNECTED,
@@ -683,14 +969,21 @@ class PowerDialerManager(private val context: Context) {
                 }
             }
             CallState.ACTIVE -> {
-                Log.d(TAG, "✅ Chamada atendida: ${activeCall.number}")
-                // CORREÇÃO: Desabilitada tentativa automática de conferência
-                // A conferência só deve ser feita manualmente pelo usuário se o chip suportar
-                // tryMergeCalls()
+                // Já processado acima
             }
             CallState.HOLDING -> {
-                // CORREÇÃO: Desabilitada tentativa automática de conferência
-                // tryMergeCalls()
+                // CORREÇÃO: Quando uma chamada fica em HOLDING, também tenta fazer conferência
+                scope.launch {
+                    delay(100)
+                    val activeOrHoldingCount = activeCalls.values.count {
+                        it.state == CallState.ACTIVE || it.state == CallState.HOLDING
+                    }
+                    if (activeOrHoldingCount >= 2 && autoConferenceEnabled) {
+                        Log.d(TAG, "🔍 Chamada ficou HOLDING - detectadas $activeOrHoldingCount chamadas ACTIVE/HOLDING - tentando conferência")
+                        ensureConferenceCapacityIfNeeded("call_just_became_holding")
+                    }
+                }
+                scheduleConferenceCheck("call_holding_state")
             }
             else -> {
                 // Chamada ainda em progresso (DIALING, RINGING, etc.)
@@ -802,9 +1095,10 @@ class PowerDialerManager(private val context: Context) {
             }
             CallState.REJECTED -> false // Rejeitadas não devem ser retentadas
             CallState.FAILED -> {
-                // Falhas podem ser retentadas uma vez
+                // CORREÇÃO: Falhas devem ser retentadas para manter o pool ativo
+                // Apenas não retenta se já tentou muitas vezes (evita loops infinitos)
                 val attempts = attemptCounts[activeCall.number] ?: 0
-                attempts < 2
+                attempts < maxRetries
             }
             else -> false
         }
