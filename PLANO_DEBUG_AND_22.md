@@ -12,7 +12,7 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 ## Fase 1: Preparação do Ambiente de Teste
 
 ### 1.1 Criar Lista de Teste
-- **Ação**: Criar uma lista com pelo menos 20-30 números de teste
+- **Ação**: Criar uma lista com pelo menos 20-30 números de teste ✅
 - **Números sugeridos**:
   - 5 números ocupados (simular com números conhecidos como ocupados)
   - 5 números não atendidos (números que não atendem)
@@ -22,13 +22,13 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 
 ### 1.2 Configurar Logs Detalhados
 - **PowerDialerManager**: Já possui logs detalhados ✅
-- **MobileApp.tsx**: Verificar se todos os eventos estão logados
-- **Dashboard**: Verificar logs de comandos enviados
+- **MobileApp.tsx**: Verificar se todos os eventos estão logados ✅
+- **Dashboard**: Verificar logs de comandos enviados ✅
 
 ### 1.3 Preparar Monitoramento
-- **Logcat**: Filtrar por `PowerDialerManager`, `MobileApp`, `dialerCallStateChanged`, `activeCallsChanged`
-- **Dashboard**: Monitorar `active_calls_count` e status das chamadas em tempo real
-- **Banco de Dados**: Verificar tabela `calls` e `devices` durante execução
+- **Logcat**: Filtrar por `PowerDialerManager`, `MobileApp`, `dialerCallStateChanged`, `activeCallsChanged` ✅
+- **Dashboard**: Monitorar `active_calls_count` e status das chamadas em tempo real ✅
+- **Banco de Dados**: Verificar tabela `calls` e `devices` durante execução ✅
 
 ---
 
@@ -399,3 +399,35 @@ WHERE id = 'SEU_DEVICE_ID';
 
 7. **Continuidade**: A campanha continua ligando indefinidamente até ser encerrada manualmente (botão no app ou no dashboard). Não encerra automaticamente quando a lista termina - aguarda novos números ou retries.
 
+---
+
+## Comportamento real observado nesta branch (IMPORTANTE)
+
+- A implementação atual foi escrita para evitar problemas práticos observados no Android
+   ao iniciar múltiplas chamadas em sequência muito rápida. Por isso **a inicialização das
+   chamadas é gradual (one-by-one)** quando não há chamadas `ACTIVE`/`HOLDING` já
+   estabelecidas. Em outras palavras: a campanha não dispara 6 chamadas DIALING
+   simultâneas imediatamente no `startCampaign()` — ela inicia a primeira e só
+   inicia chamadas adicionais após estabilização/estados intermediários.
+
+- Consequência para testes: os testes que assumem que 6 chamadas serão iniciadas
+   instantaneamente (Teste 2.1 do plano) devem ser ajustados para aceitar a inicialização
+   gradual ou a equipe deve concordar em alterar a estratégia do código (risco
+   de desconexões em alguns dispositivos/operadoras).
+
+- Recomendação: manter esta nota no plano de testes até que as refatorações abaixo
+   (thread-safety, harmonização de merge e alteração de dispatcher) sejam implementadas
+   e validadas.
+
+## Refatorações sugeridas (documentadas no código)
+
+- Tornar `mergedPairs` thread-safe (usar `ConcurrentHashMap.newKeySet()`).
+- Injetar `CoroutineDispatcher`/usar `Dispatchers.Default` para o `scope` em vez de
+   `Dispatchers.Main` para operações de background.
+- Usar `context.applicationContext` para iniciar/parar serviços para evitar vazamento
+   de referência a `Activity`.
+- Harmonizar a lógica de merge para não bloquear a manutenção do pool quando a
+   operadora não reporta suporte explícito.
+
+Atualize os testes e documentação do QA com esse comportamento real antes de rodar
+cenários que exigem 6 dials simultâneos no começo da campanha.

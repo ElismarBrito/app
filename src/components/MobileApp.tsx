@@ -349,8 +349,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     const setup = async () => {
       console.log("Setting up native event listeners...");
       
+      // CORREÇÃO CRÍTICA: Marcar listener como pronto IMEDIATAMENTE, não esperar por async callback
+      // Isso evita race condition onde start_campaign chega antes da useEffect completar
+      dialerListenerReadyRef.current = true;
+      console.log(`✅ [SYNC] dialerListenerReadyRef marcado como PRONTO no início do setup`);
+      
       // Registrar dialerCallStateChanged ANTES dos outros para garantir que está pronto
-      const dialerListener = await PbxMobile.addListener('dialerCallStateChanged', async (event: any) => {
+      const dialerListener = PbxMobile.addListener('dialerCallStateChanged', async (event: any) => {
         console.log(`📞 [dialerCallStateChanged] LISTENER ACIONADO - Evento recebido:`, event);
         
         try {
@@ -470,9 +475,8 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       });
       console.log(`✅ [dialerCallStateChanged] Listener registrado com sucesso! Handle:`, dialerListener);
       
-      // Marcar listener como pronto após um pequeno delay para garantir que o Capacitor o reconheceu
-      dialerListenerReadyRef.current = true;
-      console.log(`✅ [dialerCallStateChanged] Listener marcado como pronto!`);
+      // Listener já foi marcado como pronto no início do setup (SYNC)
+      // Não esperar por await para evitar race conditions
       
       const handles = await Promise.all([
         PbxMobile.addListener('callStateChanged', async (event) => {
@@ -1466,8 +1470,17 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     const subscription = supabase
       .channel('device-commands')
       .on('broadcast', { event: 'command' }, (payload) => {
+        console.log('📡 [BROADCAST LISTENER] Comando recebido pelo dispositivo:', {
+          device_id_recebido: payload.payload.device_id,
+          device_id_esperado: deviceId,
+          comando: payload.payload.command,
+          dados: payload.payload.data
+        });
         if (payload.payload.device_id === deviceId) {
+          console.log(`✅ [BROADCAST LISTENER] Device ID correspondeu! Chamando handleCommand...`);
           handleCommand(payload.payload);
+        } else {
+          console.warn(`❌ [BROADCAST LISTENER] Device ID não correspondeu:`, payload.payload.device_id, 'vs', deviceId);
         }
       })
       .subscribe();
@@ -1545,15 +1558,36 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         break;
         
       case 'start_campaign':
-        console.log('Processando comando start_campaign:', command.data);
+        console.log('🎯 [start_campaign] INCOMING COMMAND:', JSON.stringify(command, null, 2));
+        console.log('🎯 [start_campaign] command.data:', command.data);
+        console.log('🎯 [start_campaign] command.data.list:', command.data?.list);
+        console.log('🎯 [start_campaign] command.data.list.numbers:', command.data?.list?.numbers);
+        console.log('🎯 [start_campaign] numbers count:', command.data?.list?.numbers?.length || 0);
         
         // Verificar se o listener está pronto antes de iniciar a campanha
-        if (!dialerListenerReadyRef.current) {
-          console.warn(`⚠️ [start_campaign] Listener dialerCallStateChanged ainda não está pronto! Aguardando...`);
-          // Aguardar um pouco para garantir que o listener está pronto
-          await new Promise(resolve => setTimeout(resolve, 100));
+        let retryCount = 0;
+        const maxRetries = 40; // 40 retries * 250ms = 10 segundos máximo (aumentado por causa de race conditions em alguns dispositivos)
+        console.log(`⏳ [start_campaign] Estado inicial do listener: ${dialerListenerReadyRef.current} - aguardando readiness por até ${maxRetries * 250}ms`);
+        while (!dialerListenerReadyRef.current && retryCount < maxRetries) {
+          if (retryCount === 0) {
+            console.warn(`⚠️ [start_campaign] Listener dialerCallStateChanged ainda não está pronto! Aguardando...`);
+          }
+          console.log(`⏳ [start_campaign] Retry ${retryCount + 1}/${maxRetries} - esperando listener estar pronto... (current=${dialerListenerReadyRef.current})`);
+          await new Promise(resolve => setTimeout(resolve, 250));
+          retryCount++;
         }
-        console.log(`✅ [start_campaign] Listener dialerCallStateChanged está pronto: ${dialerListenerReadyRef.current}`);
+        
+        if (!dialerListenerReadyRef.current) {
+          console.error(`❌ [start_campaign] TIMEOUT: Listener dialerCallStateChanged não ficou pronto após ${maxRetries * 250}ms! (current=${dialerListenerReadyRef.current})`);
+          toast({ 
+            title: "Erro na Campanha", 
+            description: "Sistema não está pronto. Tente novamente em alguns segundos.", 
+            variant: "destructive" 
+          });
+          break;
+        }
+        
+        console.log(`✅ [start_campaign] Listener dialerCallStateChanged está pronto (retry ${retryCount})`);
         
         if (command.data.list && command.data.list.numbers) {
           try {
@@ -1660,6 +1694,16 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             }
 
             // Now start the native campaign
+            console.log(`🚀 [start_campaign] ABOUT TO CALL PbxMobile.startCampaign()`);
+            console.log(`🚀 [start_campaign] Parameters:`, {
+              numbersCount: numbersToCall.length,
+              numbers: numbersToCall.slice(0, 10),  // First 10 for debugging
+              deviceId,
+              listId: command.data.listId,
+              listName: command.data.listName,
+              simId: selectedSimId
+            });
+            
             await PbxMobile.startCampaign({
               numbers: numbersToCall,
               deviceId: deviceId!,
@@ -1667,6 +1711,8 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               listName: command.data.listName,
               simId: selectedSimId
             });
+            
+            console.log(`✅ [start_campaign] PbxMobile.startCampaign() completed successfully`);
             
             setCampaignSummary(null); // Clear previous summary
             toast({ 
