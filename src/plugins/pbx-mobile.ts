@@ -147,6 +147,9 @@ export interface PbxMobilePlugin {
   pauseCampaign(): Promise<void>;
   resumeCampaign(): Promise<void>;
   stopCampaign(): Promise<void>;
+  updateCampaignNumbers(options: {
+    numbers: string[];
+  }): Promise<{ success: boolean; numbersAdded: number }>;
 
   // --- Listeners de Eventos ---
   addListener(

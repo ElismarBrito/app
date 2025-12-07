@@ -35,20 +35,24 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 ## Fase 2: Testes de Funcionalidade Básica
 
 ### Teste 2.1: Início de Campanha
-**Objetivo**: Validar que a campanha inicia corretamente e mantém 6 chamadas simultâneas
+**Objetivo**: Validar que a campanha inicia corretamente e gradualmente atinge 6 chamadas simultâneas
 
 **Passos**:
 1. Iniciar campanha com lista de teste
 2. Verificar no logcat: `🚀 Campanha iniciada`
-3. Verificar que 6 chamadas são iniciadas imediatamente
-4. Verificar no dashboard: `active_calls_count = 6`
-5. Verificar no app: Div "Chamadas Ativas" mostra 6 chamadas
+3. Verificar que as chamadas são iniciadas gradualmente (uma por vez inicialmente)
+4. Observar que o sistema inicia a primeira chamada e aguarda estabilização antes de iniciar as próximas
+5. Verificar que após algumas chamadas estabilizarem (ACTIVE/HOLDING), o sistema acelera e inicia múltiplas chamadas até atingir 6 simultâneas
+6. Aguardar até que o pool atinja 6 chamadas ativas (pode levar alguns segundos devido à inicialização gradual)
+7. Verificar no dashboard: `active_calls_count` gradualmente aumenta até 6
+8. Verificar no app: Div "Chamadas Ativas" mostra o número de chamadas aumentando até 6
 
 **Critérios de Sucesso**:
 - ✅ Campanha inicia sem erros
-- ✅ Exatamente 6 chamadas são iniciadas simultaneamente
-- ✅ Dashboard mostra `active_calls_count = 6`
-- ✅ App mostra 6 chamadas ativas
+- ✅ Chamadas são iniciadas gradualmente (comportamento intencional para evitar desconexões do Android)
+- ✅ Após estabilização inicial, o sistema consegue atingir e manter 6 chamadas simultâneas
+- ✅ Dashboard reflete o aumento gradual de `active_calls_count` até 6
+- ✅ App mostra o número de chamadas ativas aumentando gradualmente até 6
 
 ---
 
@@ -85,7 +89,7 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 
 **Critérios de Sucesso**:
 - ✅ Chamada ocupada é detectada corretamente e muda para BUSY → DISCONNECTED
-- ✅ Status é atualizado no banco de dados
+- ✅ Status é atualizado no banco de dados (✅ VALIDADO: histórico aparece no dashboard)
 - ✅ Chamada é removida de `activeCalls` (libera slot no pool)
 - ✅ Retry é executado se configurado (até `maxRetries`) - número é readicionado à fila
 - ✅ Nova chamada é iniciada automaticamente para substituir a ocupada no pool (mantém 6 simultâneas)
@@ -307,11 +311,57 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 
 ---
 
+### Teste 6.3: Validação de Otimizações (Throttle/Debounce e Eliminação de Race Conditions)
+**Objetivo**: Validar que as otimizações de performance estão funcionando e não causaram regressões
+
+**Passos**:
+1. Iniciar campanha com 10+ números
+2. Monitorar logs do logcat filtrando por:
+   - `✅ UI atualizada` (PowerDialerManager)
+   - `📞 Atualizando lista de chamadas ativas` (MyInCallService)
+   - `📊 [syncActiveCallsCountToDb]` (Frontend)
+3. Verificar que:
+   - Atualizações de UI não acontecem mais que 1 vez a cada 200ms (throttle funcionando)
+   - Atualizações de progresso não acontecem mais que 1 vez a cada 500ms (throttle funcionando)
+   - Atualizações do banco são consolidadas (debounce de 300ms funcionando)
+   - Não há múltiplas atualizações simultâneas do mesmo evento (race conditions eliminadas)
+4. Verificar no dashboard:
+   - `active_calls_count` atualiza corretamente (sem atrasos excessivos)
+   - Lista de chamadas ativas aparece e atualiza corretamente
+   - Não há "flickering" ou atualizações muito rápidas na UI
+5. Testar chamadas manuais (fora de campanha):
+   - Fazer uma chamada manual
+   - Verificar que aparece na UI imediatamente (fallback do MyInCallService funcionando)
+   - Verificar que `active_calls_count` é atualizado
+
+**Critérios de Sucesso**:
+- ✅ Throttle de 200ms para UI está funcionando (máximo 5 atualizações/segundo)
+- ✅ Throttle de 500ms para progresso está funcionando (máximo 2 atualizações/segundo)
+- ✅ Debounce de 300ms para banco está funcionando (múltiplas atualizações consolidadas)
+- ✅ Não há race conditions (não há múltiplas atualizações simultâneas do mesmo evento)
+- ✅ Frontend recebe atualizações corretamente (tanto campanha quanto chamadas manuais)
+- ✅ Dashboard reflete mudanças sem atrasos excessivos (< 500ms)
+- ✅ Chamadas manuais funcionam corretamente (fallback do MyInCallService)
+
+**Comandos para Validação**:
+```bash
+# Monitorar atualizações de UI (deve mostrar throttle funcionando)
+adb logcat -v time | grep -E "(UI atualizada|Atualizando lista de chamadas ativas)" | awk '{print $2}' | uniq -c
+
+# Monitorar atualizações do banco (deve mostrar debounce funcionando)
+adb logcat -v time | grep -E "(syncActiveCallsCountToDb|Sincronizado active_calls_count)" | awk '{print $2}' | uniq -c
+
+# Verificar se há atualizações duplicadas (não deve haver)
+adb logcat -v time | grep -E "(UI atualizada|Atualizando lista)" | sort | uniq -d
+```
+
+---
+
 ## Checklist de Validação Final
 
 ### Funcionalidades Core
-- [ ] Pool de 6 chamadas simultâneas funciona
-- [ ] Manutenção automática do pool funciona
+- [ ] Pool de 6 chamadas simultâneas funciona (testado com 4 números - ✅ funcionou parcialmente)
+- [x] Manutenção automática do pool funciona (✅ VALIDADO: quando chamada desliga, discador volta a discar automaticamente)
 - [ ] Retry inteligente funciona
 - [ ] Timeout de 45s funciona
 - [ ] Chamadas atendidas permanecem ativas
@@ -331,8 +381,10 @@ Validar o funcionamento completo do sistema de campanha com pool de 6 chamadas s
 ### Sincronização
 - [ ] Sincronização app → dashboard funciona
 - [ ] Sincronização dashboard → app funciona
-- [ ] `active_calls_count` está sempre correto
+- [x] `active_calls_count` está sempre correto (⚠️ VALIDADO PARCIALMENTE: funciona mas demora um pouco no smartphone para mostrar progresso)
 - [ ] Atualizações não são excessivas
+- [x] Histórico de chamadas é salvo no banco de dados (✅ VALIDADO: histórico de 4 chamadas aparece na aba Chamadas)
+- [x] Limpeza de registros funciona (✅ VALIDADO: conseguiu apagar os registros)
 
 ### Performance
 - [ ] Sistema estável em longa duração

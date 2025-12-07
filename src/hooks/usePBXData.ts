@@ -64,27 +64,90 @@ export const usePBXData = () => {
     if (!user) return
 
     try {
-      // Usa índice composto idx_devices_user_status quando filtra por status
+      // CORREÇÃO: Remover filtro .neq() da query e fazer filtro no cliente
+      // Isso evita problemas se o dispositivo for criado com status NULL ou diferente
       const { data, error } = await supabase
         .from('devices' as any)
         .select('id, name, status, paired_at, last_seen, user_id, internet_status, signal_status, line_blocked, active_calls_count')
         .eq('user_id', user.id)
-        .neq('status', 'unpaired') // ✅ Não busca dispositivos despareados
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Erro ao buscar dispositivos:', error);
+        throw error;
+      }
       const devicesList = (data as unknown as Device[]) || []
+      console.log(`📱 fetchDevices() encontrou ${devicesList.length} dispositivo(s) no banco (antes do filtro)`)
       
-      // CORREÇÃO: Filtro adicional de segurança para garantir que 'unpaired' nunca entre na lista
-      let filteredDevices = devicesList.filter(device => device.status !== 'unpaired')
+      // Log detalhado de cada dispositivo encontrado
+      devicesList.forEach((device, index) => {
+        console.log(`  [${index + 1}] ${device.name} (${device.id}) - Status: ${device.status}, Pareado: ${device.paired_at || 'N/A'}`)
+      })
+      
+      // CORREÇÃO: Filtrar dispositivos 'unpaired' mas incluir dispositivos pareados recentemente
+      // Mesmo se status for 'unpaired', incluir se foi pareado nos últimos 10 minutos (pode ser problema de sincronização)
+      const now = Date.now();
+      const tenMinutesAgo = now - (10 * 60 * 1000);
+      
+      let filteredDevices = devicesList.filter(device => {
+        // Se status é 'unpaired', verificar se foi pareado recentemente
+        if (device.status === 'unpaired') {
+          // Se foi pareado nos últimos 10 minutos, incluir mesmo com status 'unpaired' (problema de sincronização)
+          if (device.paired_at) {
+            const pairedAtTime = new Date(device.paired_at).getTime();
+            const timeSincePaired = now - pairedAtTime;
+            // Se foi pareado há menos de 10 minutos, incluir mesmo com status 'unpaired'
+            if (timeSincePaired < (10 * 60 * 1000)) {
+              console.log(`⚠️ Dispositivo ${device.name} tem status 'unpaired' mas foi pareado recentemente (${Math.floor(timeSincePaired / 1000)}s atrás), incluindo na lista`);
+              return true; // Incluir mesmo com status 'unpaired' se foi pareado recentemente
+            }
+          }
+          return false; // Excluir dispositivos 'unpaired' antigos
+        }
+        // Se não tem status ou status é null/undefined, incluir (pode ser dispositivo recém-criado)
+        if (!device.status || device.status === null || device.status === undefined) {
+          return true;
+        }
+        // Incluir todos os outros status (online, offline)
+        return true;
+      });
+      
+      // Ordenar por paired_at mais recente primeiro (dispositivos pareados recentemente aparecem primeiro)
+      filteredDevices.sort((a, b) => {
+        const aPaired = a.paired_at ? new Date(a.paired_at).getTime() : 0;
+        const bPaired = b.paired_at ? new Date(b.paired_at).getTime() : 0;
+        return bPaired - aPaired; // Mais recente primeiro
+      });
+      
+      console.log(`📱 fetchDevices() após filtro unpaired: ${filteredDevices.length} dispositivo(s)`)
+      
+      // Log detalhado dos dispositivos filtrados
+      filteredDevices.forEach((device, index) => {
+        console.log(`  ✅ [${index + 1}] ${device.name} (${device.id}) - Status: ${device.status || 'null'}, Pareado: ${device.paired_at || 'N/A'}`)
+      })
       
       // CORREÇÃO: Verificar dispositivos 'online' com last_seen antigo (> 5 minutos) e marcar como offline imediatamente
-      const now = Date.now()
+      // IMPORTANTE: Não marcar como offline se foi pareado recentemente (últimos 2 minutos)
+      // Reutilizar 'now' já declarado acima
       const fiveMinutesAgo = now - (5 * 60 * 1000)
+      const twoMinutesAgo = now - (2 * 60 * 1000) // Grace period para dispositivos recém-pareados
       
       const inactiveOnlineDevices = filteredDevices.filter(device => {
         if (device.status !== 'online') return false
-        if (!device.last_seen) return true // Sem last_seen = inativo
+        
+        // Se foi pareado recentemente (últimos 2 minutos), não marcar como offline
+        if (device.paired_at) {
+          const pairedAtTime = new Date(device.paired_at).getTime()
+          if ((now - pairedAtTime) < twoMinutesAgo) {
+            console.log(`⏳ Dispositivo ${device.name} pareado recentemente, mantendo online`);
+            return false // Não marcar como inativo se foi pareado recentemente
+          }
+        }
+        
+        if (!device.last_seen) {
+          // Sem last_seen mas pareado há mais de 2 minutos = inativo
+          return device.paired_at ? (now - new Date(device.paired_at).getTime()) > twoMinutesAgo : true
+        }
         
         const lastSeenTime = new Date(device.last_seen).getTime()
         return (now - lastSeenTime) > fiveMinutesAgo // Mais de 5 minutos sem heartbeat
@@ -565,38 +628,57 @@ export const usePBXData = () => {
       .channel(`devices_channel_${user.id}`) // Canais únicos por usuário para evitar conflitos
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'devices', filter: `user_id=eq.${user.id}` },
-        (payload) => {
-          const newStatus = payload.new?.status;
-          const oldStatus = payload.old?.status;
+        (payload: any) => {
+          const newRecord = payload.new as any;
+          const oldRecord = payload.old as any;
+          const newStatus = newRecord?.status;
+          const oldStatus = oldRecord?.status;
           const eventType = payload.eventType; // 'INSERT', 'UPDATE', 'DELETE'
           console.log('📱 Subscription detectou mudança em devices:', { 
             eventType,
-            deviceId: payload.new?.id, 
+            deviceId: newRecord?.id, 
             oldStatus, 
             newStatus,
-            deviceName: payload.new?.name
+            deviceName: newRecord?.name
           });
           
           // Se dispositivo foi marcado como 'unpaired', remover imediatamente da lista local
           if (newStatus === 'unpaired') {
             console.log('🗑️ Dispositivo marcado como unpaired, removendo da lista local');
-            setDevices(prev => prev.filter(d => d.id !== payload.new?.id));
+            setDevices(prev => prev.filter(d => d.id !== newRecord?.id));
             return; // Não precisa recarregar se foi despareado
           }
           
           // CORREÇÃO: Se é um INSERT ou UPDATE para 'online', recarregar imediatamente
           // Isso garante que dispositivos recém-pareados apareçam no dashboard
           if (eventType === 'INSERT' || (eventType === 'UPDATE' && newStatus === 'online')) {
-            console.log('✅ Novo dispositivo pareado ou status atualizado para online, recarregando lista...');
+            console.log('✅ Novo dispositivo pareado ou status atualizado para online, recarregando lista IMEDIATAMENTE...');
             // Não usar debounce para novos dispositivos - atualizar imediatamente
+            // Forçar múltiplas tentativas para garantir que aparece
             fetchDevicesRef.current();
+            // Refetch adicional após 500ms para garantir (caso haja delay no banco)
+            setTimeout(() => {
+              console.log('🔄 Refetch adicional após pareamento...');
+              fetchDevicesRef.current();
+            }, 500);
           } else {
             // Para outras mudanças, usar debounce
             debouncedFetchDevices();
           }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('📡 Subscription status devices:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Subscription de devices ativa - mudanças serão detectadas em tempo real');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Erro na subscription de devices - usando apenas polling como fallback');
+        } else if (status === 'TIMED_OUT') {
+          console.warn('⏱️ Subscription de devices expirou - usando apenas polling como fallback');
+        } else if (status === 'CLOSED') {
+          console.warn('🔒 Subscription de devices fechada - usando apenas polling como fallback');
+        }
+      })
 
     const callsSubscription = supabase
       .channel(`calls_channel_${user.id}`) // Canais únicos por usuário
@@ -614,7 +696,15 @@ export const usePBXData = () => {
       )
       .subscribe()
 
+    // CORREÇÃO: Polling periódico como fallback para garantir que dispositivos apareçam mesmo se subscription falhar
+    // Polling a cada 2 segundos para detectar novos dispositivos pareados mais rapidamente
+    const pollingInterval = setInterval(() => {
+      console.log('🔄 Polling periódico: verificando novos dispositivos...');
+      fetchDevicesRef.current();
+    }, 2000); // 2 segundos - mais rápido para detectar pareamentos
+
     return () => {
+      clearInterval(pollingInterval);
       devicesSubscription.unsubscribe()
       callsSubscription.unsubscribe()
       listsSubscription.unsubscribe()

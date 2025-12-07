@@ -74,6 +74,10 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   // Ref para rastrear o último valor de active_calls_count para evitar atualizações desnecessárias
   const lastActiveCallsCountRef = useRef<number | null>(null);
   
+  // CORREÇÃO: Debounce para evitar race conditions nas atualizações do banco
+  const dbUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingDbUpdateRef = useRef<number | null>(null);
+  
   // Enable automatic status sync with database
   useCallStatusSync(callMapRef.current, startTimesRef.current);
   
@@ -502,30 +506,8 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           const currentCount = event.calls.length;
           setActiveCalls(event.calls);
           
-          // CORREÇÃO: Sincronizar contagem de chamadas ativas com o dashboard
-          // OTIMIZAÇÃO: Só atualiza se o valor realmente mudou
-          if (deviceId && user && currentCount !== undefined) {
-            const lastCount = lastActiveCallsCountRef.current;
-            
-            // Só atualiza se o valor mudou
-            if (lastCount === null || lastCount !== currentCount) {
-              try {
-                await supabase
-                  .from('devices')
-                  .update({
-                    active_calls_count: currentCount,
-                    updated_at: new Date().toISOString()
-                  })
-                  .eq('id', deviceId)
-                  .eq('user_id', user.id);
-                
-                lastActiveCallsCountRef.current = currentCount;
-                console.log(`📊 [activeCallsChanged] Sincronizado active_calls_count: ${currentCount}${lastCount !== null ? ` (anterior: ${lastCount})` : ''}`);
-              } catch (error) {
-                console.error('❌ [activeCallsChanged] Erro ao sincronizar active_calls_count:', error);
-              }
-            }
-          }
+          // CORREÇÃO: Usa função consolidada para atualizar banco (evita race conditions)
+          await syncActiveCallsCountToDb(currentCount, false);
         }),
         PbxMobile.addListener('dialerCampaignProgress', (progress) => {
           console.log('Event: dialerCampaignProgress', progress);
@@ -726,6 +708,52 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     }
   };
 
+  /**
+   * CORREÇÃO: Função consolidada para atualizar o banco com debounce
+   * Evita race conditions quando múltiplas atualizações acontecem simultaneamente
+   */
+  const syncActiveCallsCountToDb = async (count: number, forceSync: boolean = false) => {
+    if (!deviceId || !user) return;
+    
+    const lastCount = lastActiveCallsCountRef.current;
+    
+    // Só atualiza se o valor mudou OU se foi forçado
+    if (!forceSync && lastCount !== null && lastCount === count) {
+      return; // Valor não mudou, não precisa atualizar
+    }
+    
+    // Cancela atualização pendente se houver
+    if (dbUpdateTimeoutRef.current) {
+      clearTimeout(dbUpdateTimeoutRef.current);
+    }
+    
+    // Armazena o valor pendente
+    pendingDbUpdateRef.current = count;
+    
+    // Debounce: aguarda 300ms antes de atualizar (consolida múltiplas atualizações)
+    dbUpdateTimeoutRef.current = setTimeout(async () => {
+      const countToUpdate = pendingDbUpdateRef.current;
+      if (countToUpdate === null) return;
+      
+      try {
+        await supabase
+          .from('devices')
+          .update({
+            active_calls_count: countToUpdate,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', deviceId)
+          .eq('user_id', user.id);
+        
+        lastActiveCallsCountRef.current = countToUpdate;
+        console.log(`📊 [syncActiveCallsCountToDb] Sincronizado active_calls_count: ${countToUpdate}${lastCount !== null && lastCount !== countToUpdate ? ` (anterior: ${lastCount})` : ''}`);
+        pendingDbUpdateRef.current = null;
+      } catch (error) {
+        console.error('❌ [syncActiveCallsCountToDb] Erro ao sincronizar active_calls_count:', error);
+      }
+    }, forceSync ? 0 : 300); // Se forçado, atualiza imediatamente
+  };
+
   const updateActiveCalls = async (forceSync: boolean = false) => {
     try {
       const result = await PbxMobile.getActiveCalls();
@@ -733,30 +761,8 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       
       setActiveCalls(result.calls);
       
-      // CORREÇÃO: Sincronizar contagem de chamadas ativas com o dashboard
-      // OTIMIZAÇÃO: Só atualiza o banco se o valor realmente mudou (evita atualizações desnecessárias)
-      if (deviceId && user && currentCount !== undefined) {
-        const lastCount = lastActiveCallsCountRef.current;
-        
-        // Só atualiza se o valor mudou OU se foi forçado (forceSync = true)
-        if (forceSync || lastCount === null || lastCount !== currentCount) {
-          try {
-            await supabase
-              .from('devices')
-              .update({
-                active_calls_count: currentCount,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', deviceId)
-              .eq('user_id', user.id);
-            
-            lastActiveCallsCountRef.current = currentCount;
-            console.log(`📊 [updateActiveCalls] Sincronizado active_calls_count: ${currentCount}${lastCount !== null && lastCount !== currentCount ? ` (anterior: ${lastCount})` : ''}`);
-          } catch (error) {
-            console.error('❌ [updateActiveCalls] Erro ao sincronizar active_calls_count:', error);
-          }
-        }
-      }
+      // CORREÇÃO: Usa função consolidada para atualizar banco
+      await syncActiveCallsCountToDb(currentCount, forceSync);
     } catch (error) {
       console.log('Error getting active calls:', error);
     }

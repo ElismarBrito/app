@@ -28,6 +28,17 @@ class MyInCallService : InCallService() {
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         
+        // CORREÇÃO CRÍTICA: Não processa chamadas de conferência como chamadas separadas
+        // Conferências são agregadas das chamadas originais e não devem ser contadas individualmente
+        val isConference = try {
+            call.details?.hasProperty(Call.Details.PROPERTY_CONFERENCE) ?: false
+        } catch (e: Exception) { false }
+        
+        if (isConference) {
+            Log.d(TAG, "⏭️ Chamada de conferência detectada no onCallAdded - ignorando (não deve ser contada como chamada separada)")
+            return
+        }
+        
         val callId = extractCallId(call)
         val phoneNumber = call.details?.handle?.schemeSpecificPart ?: "Unknown"
         
@@ -44,14 +55,13 @@ class MyInCallService : InCallService() {
         Log.d(TAG, "📞 Notificando estado inicial: $callId -> $state")
         ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, state, phoneNumber)
         
-        // CORREÇÃO: Atualiza lista de chamadas ativas IMEDIATAMENTE quando uma chamada é adicionada
-        // Isso garante que o box apareça desde o primeiro segundo
-        updateActiveCallsList()
-        
-        // CORREÇÃO: Força uma segunda atualização após um pequeno delay para garantir que o estado foi propagado
-        handler.postDelayed({
+        // CORREÇÃO: Atualiza UI apenas se não há campanha ativa (fallback para chamadas manuais)
+        val powerDialerManager = ServiceRegistry.getPlugin()?.powerDialerManager
+        if (powerDialerManager == null || !powerDialerManager.hasActiveCampaign()) {
+            // Se não há campanha ativa, atualiza diretamente para chamadas manuais
             updateActiveCallsList()
-        }, 100)
+        }
+        // Se há campanha ativa, PowerDialerManager atualizará com throttle
     }
 
     override fun onCallRemoved(call: Call) {
@@ -68,8 +78,8 @@ class MyInCallService : InCallService() {
             ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, "DISCONNECTED", it.phoneNumber)
         }
         
-        // Update active calls list
-        updateActiveCallsList()
+        // CORREÇÃO: PowerDialerManager é a fonte única de verdade para atualizações de UI
+        // Não atualizamos aqui para evitar race conditions
     }
     
     fun getActiveCalls(): List<Map<String, Any>> {
@@ -241,17 +251,23 @@ class MyInCallService : InCallService() {
                 // Get the PowerDialerManager instance
                 val powerDialerManager = ServiceRegistry.getPlugin()?.powerDialerManager
 
-                if (powerDialerManager != null) {
+                if (powerDialerManager != null && powerDialerManager.hasActiveCampaign()) {
+                    // CORREÇÃO: Se há campanha ativa, PowerDialerManager é a fonte única de verdade
                     // Feed the state change into the Power Dialer engine
                     powerDialerManager.updateCallState(callId, call, state)
+                    // PowerDialerManager atualizará a UI com throttle
                 } else {
-                    // Fallback to old notification if manager is not available
+                    // CORREÇÃO: Fallback para chamadas manuais ou quando não há campanha ativa
+                    // Atualiza diretamente para garantir que o frontend receba atualizações
                     val stateString = mapCallState(state)
-                    Log.w(TAG, "PowerDialerManager not found, using fallback notification.")
+                    if (powerDialerManager == null) {
+                        Log.w(TAG, "PowerDialerManager not found, using fallback notification.")
+                    } else {
+                        Log.d(TAG, "PowerDialerManager disponível mas sem campanha ativa - usando fallback para atualização imediata")
+                    }
                     ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, stateString, phoneNumber)
+                    updateActiveCallsList()
                 }
-
-                updateActiveCallsList()
             }
             
             override fun onDetailsChanged(call: Call, details: Call.Details) {

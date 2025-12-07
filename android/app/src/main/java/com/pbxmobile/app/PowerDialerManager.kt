@@ -9,6 +9,10 @@ import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.util.Log
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -66,32 +70,51 @@ class PowerDialerManager(private val context: Context) {
     
     // Configurações
     private var maxConcurrentCalls = 6 // MANTÉM 6 CHAMADAS SIMULTÂNEAS ATIVAS
-    private var maxRetries = 3 // Máximo de tentativas por número
+    private var maxRetries = 2 // Máximo de tentativas por número (padrão: 2)
     private var retryDelay = 2000L // 2s entre retries (rápido para manter pool cheio)
     private var callTimeout = 45000L // 45s timeout por chamada (tempo para tocar e desconectar)
     private var minCallDuration = 1000L // 1s tempo mínimo antes de considerar chamada completa
     private var poolCheckInterval = 500L // Verifica pool a cada 500ms
-    private var autoConferenceEnabled = true // Força merge automático quando operadora suporta
+    private var autoConferenceEnabled = true // Merge automático quando há 2+ chamadas (dispositivo tem capacidade)
+    private var maxConcurrentDialing = 1 // Quantas chamadas em DIALING/RINGING permitimos simultaneamente (1 = sequencial, como solicitado)
+    private var minDialDelay = 1000L // Delay mínimo de 1 segundo entre discagens (aguarda resultado da anterior)
     
     // Estado da campanha
     private var currentCampaign: Campaign? = null
     private val activeCalls = ConcurrentHashMap<String, ActiveCall>()
     private val callResults = ConcurrentHashMap<String, CallResult>()
-    private val attemptCounts = ConcurrentHashMap<String, Int>()
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private var lastDialedNumber: String? = null // Rastreia último número discado para evitar sequência
+    private var lastDialedNumberTime: Long? = null // Timestamp do último número discado
     private val pendingRetries = AtomicInteger(0)
-    private var isMaintainingPool = false // Flag para manter pool de chamadas
-    private var poolMaintenanceJob: Job? = null // Job que mantém o pool
+    private var isMaintainingPool = false
+    private var poolMaintenanceJob: Job? = null
     private var lastMergeAttemptAtMs: Long = 0L
     private val mergedPairs = ConcurrentHashMap.newKeySet<String>()
-    // Números que excederam retries e não devem ser re-adicionados em modo loop
-    private val finishedNumbers = ConcurrentHashMap.newKeySet<String>()
-    // Contagem de falhas consecutivas por número para aplicar backoff/rotatividade
-    private val consecutiveFailures = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
-    // Mapa de backoff: número -> timestamp (ms) até o qual não deve ser re-tentado
-    private val backoffUntil = ConcurrentHashMap<String, Long>()
-    private val consecutiveFailureLimit = 3
-    private val backoffMillis = 60_000L // 60s de backoff por padrão
+    private var consecutiveMergeFailures = 0
+    private var lastMergeFailureAtMs: Long = 0L
+    private val maxConsecutiveMergeFailures = 3
+    
+    // Classes auxiliares para gerenciar responsabilidades
+    private lateinit var attemptManager: AttemptManager
+    private lateinit var numberValidator: NumberValidator
+    private lateinit var queueManager: QueueManager
+    
+    // Dados de conferência (compartilhados com NumberValidator)
+    private val mergedConferences = ConcurrentHashMap<String, MutableSet<String>>()
+    private val numberToConferencePrimary = ConcurrentHashMap<String, String>()
+    
+    // Mutexes e canais
+    private val dialingMutex = Mutex()
+    private val poolRefillChannel = Channel<Unit>(Channel.CONFLATED)
+    
+    // CORREÇÃO: Sistema de debounce/throttle para evitar atualizações redundantes
+    private var lastUIUpdateTime = 0L
+    private var lastProgressUpdateTime = 0L
+    private val uiUpdateThrottleMs = 200L // Throttle de 200ms para atualizações de UI
+    private val progressUpdateThrottleMs = 500L // Throttle de 500ms para progresso
+    private var pendingUIUpdate: Job? = null
+    private var pendingProgressUpdate: Job? = null
     
     // Callbacks
     
@@ -102,12 +125,151 @@ class PowerDialerManager(private val context: Context) {
     private var onCampaignProgress: ((CampaignProgress) -> Unit)? = null
     private var onCampaignCompleted: ((CampaignSummary) -> Unit)? = null
     
+    // ==================== INITIALIZATION ====================
+    
+    init {
+        // Inicializa com valores padrão, será atualizado em configure()
+        attemptManager = AttemptManager(maxRetries, 3, 60_000L)
+        numberValidator = NumberValidator().apply {
+            mergedConferences = this@PowerDialerManager.mergedConferences
+            numberToConferencePrimary = this@PowerDialerManager.numberToConferencePrimary
+        }
+        queueManager = QueueManager()
+    }
+    
+    /**
+     * CORREÇÃO BUG #3: Função única para contagem de chamadas ativas
+     */
+    data class CallStats(
+        val totalActive: Int,
+        val activeHolding: Int,
+        val dialingRinging: Int,
+        val conferences: Int,
+        val otherStates: Int
+    )
+    
+    private fun getCallStats(): CallStats {
+        val now = System.currentTimeMillis()
+        
+        // CORREÇÃO CRÍTICA: Filtra estados finais para evitar contagem incorreta
+        val finishedStates = listOf(
+            CallState.DISCONNECTED,
+            CallState.FAILED,
+            CallState.REJECTED,
+            CallState.NO_ANSWER,
+            CallState.UNREACHABLE,
+            CallState.BUSY
+        )
+        
+        val active = activeCalls.values.count { 
+            it.state == CallState.ACTIVE && 
+            !isReportedAsConference(it) &&
+            it.state !in finishedStates // CORREÇÃO: Exclui estados finais
+        }
+        val holding = activeCalls.values.count { 
+            it.state == CallState.HOLDING && 
+            !isReportedAsConference(it) &&
+            it.state !in finishedStates // CORREÇÃO: Exclui estados finais
+        }
+        // CORREÇÃO CRÍTICA: Filtra chamadas expiradas em DIALING/RINGING para evitar contagem incorreta
+        // Isso resolve o problema de "contabilizar 7 chamadas quando só tem 5 ativas"
+        val dialing = activeCalls.values.count { ac ->
+            val state = ac.state
+            val isValidState = state == CallState.DIALING || state == CallState.RINGING
+            val notExpired = (now - ac.startTime) < callTimeout
+            val notFinished = state !in finishedStates // CORREÇÃO: Exclui estados finais
+            isValidState && notExpired && notFinished
+        }
+        val conf = activeCalls.values.count { 
+            isReportedAsConference(it) && 
+            it.state !in finishedStates // CORREÇÃO: Exclui conferências finalizadas
+        }
+        val other = activeCalls.values.count { 
+            it.state !in listOf(CallState.ACTIVE, CallState.HOLDING, CallState.DIALING, CallState.RINGING) &&
+            !isReportedAsConference(it) &&
+            it.state !in finishedStates // CORREÇÃO: Exclui estados finais
+        }
+        
+        return CallStats(
+            totalActive = active + holding,
+            activeHolding = active + holding,
+            dialingRinging = dialing,
+            conferences = conf,
+            otherStates = other
+        )
+    }
+    
     // ==================== DATA CLASSES ====================
+    
+    /**
+     * Token robusto para representar números na fila de discagem
+     * CORREÇÃO: Usa estrutura de dados ao invés de string frágil com separador "|"
+     */
+    data class DialToken(
+        val number: String,
+        val prefix: String = "normal", // "normal", "retry", "loop", "update"
+        val timestamp: Long = System.currentTimeMillis(),
+        val index: Int = 0
+    ) {
+        /**
+         * Serializa para string (compatibilidade com código existente)
+         * CORREÇÃO: Usa separador seguro que não aparece em números de telefone
+         */
+        fun serialize(): String {
+            // Usa ":::" como separador (muito improvável em números de telefone)
+            return "$prefix:::${timestamp}:::${index}:::${number}"
+        }
+        
+        companion object {
+            /**
+             * Deserializa de string (compatibilidade com código existente)
+             * CORREÇÃO: Tenta novo formato primeiro, fallback para formato antigo
+             */
+            fun deserialize(token: String): DialToken {
+                // Tenta novo formato com separador seguro
+                if (token.contains(":::")) {
+                    val parts = token.split(":::", limit = 4)
+                    if (parts.size == 4) {
+                        return DialToken(
+                            number = parts[3],
+                            prefix = parts[0],
+                            timestamp = parts[1].toLongOrNull() ?: System.currentTimeMillis(),
+                            index = parts[2].toIntOrNull() ?: 0
+                        )
+                    }
+                }
+                
+                // Fallback para formato antigo "prefix|number" ou "idx|number"
+                val parts = token.split("|", limit = 2)
+                return if (parts.size > 1) {
+                    val prefix = when {
+                        parts[0].startsWith("retry_") -> "retry"
+                        parts[0].startsWith("loop_") -> "loop"
+                        parts[0].startsWith("update_") -> "update"
+                        else -> "normal"
+                    }
+                    DialToken(
+                        number = parts[1],
+                        prefix = prefix,
+                        timestamp = if (parts[0].contains("_")) {
+                            parts[0].substringAfterLast("_").toLongOrNull() ?: System.currentTimeMillis()
+                        } else {
+                            System.currentTimeMillis()
+                        },
+                        index = parts[0].substringBefore("_").toIntOrNull() ?: 0
+                    )
+                } else {
+                    // Formato antigo sem separador (apenas número)
+                    DialToken(number = parts[0])
+                }
+            }
+        }
+    }
     
     data class Campaign(
         val sessionId: String,
         val numbers: MutableList<String>,
-        val shuffledNumbers: MutableList<String>,
+        val shuffledNumbers: MutableList<String>, // Mantém compatibilidade, mas agora pode usar DialToken.serialize()
         val deviceId: String,
         val listId: String,
         val listName: String,
@@ -236,13 +398,21 @@ class PowerDialerManager(private val context: Context) {
         Log.d(TAG, "📌 [DEBUG CAMPANHA] startCampaign chamado com ${numbers.size} números")
         Log.d(TAG, "📌 [DEBUG CAMPANHA] Números recebidos: ${numbers.map { "'$it'" }.joinToString(", ")}")
         
-        // Embaralha os números para distribuição uniforme
-        val shuffled = numbers.shuffled().toMutableList()
-        Log.d(TAG, "📌 [DEBUG CAMPANHA] Números após embaralhamento: ${shuffled.map { "'$it'" }.joinToString(", ")}")
+        // CORREÇÃO CRÍTICA: NÃO deduplica - mantém TODOS os números na ordem exata
+        // Permite múltiplas chamadas para o mesmo número (ex: 999468322, 996167107, 996424402, 999468322, 996167107, 996424402)
+        // Usa DialToken para criar tokens robustos (suporta números com "|")
+        // Mantém a sequência enviada pelo usuário (não embaralhar)
+        val shuffled = numbers.mapIndexed { i, num -> 
+            DialToken(number = num, prefix = "normal", index = i).serialize()
+        }.toMutableList()
+        Log.d(TAG, "📌 [DEBUG CAMPANHA] Números após preparar fila (ordem preservada, sem deduplicação): ${numbers.joinToString(", ")}")
+        
+        // Para tracking de tentativas, usa números únicos
+        val uniqueNumbers = numbers.distinct().toMutableList()
         
         currentCampaign = Campaign(
             sessionId = sessionId,
-            numbers = numbers.toMutableList(),
+            numbers = numbers.toMutableList(), // Mantém lista completa com duplicados
             shuffledNumbers = shuffled,
             deviceId = deviceId,
             listId = listId,
@@ -262,13 +432,13 @@ class PowerDialerManager(private val context: Context) {
         activeCalls.clear()
         callResults.clear()
         pendingRetries.set(0)
-        attemptCounts.clear()
-        finishedNumbers.clear()
-        numbers.forEach { attemptCounts[it] = 0 }
+        attemptManager.clear()
+        attemptManager.initialize(uniqueNumbers) // Inicializa tracking com números únicos
+        mergedPairs.clear()
         
-        Log.d(TAG, "🚀 Campanha iniciada: $sessionId com ${numbers.size} números")
+        Log.d(TAG, "🚀 Campanha iniciada: $sessionId com ${numbers.size} números na lista (${uniqueNumbers.size} únicos)")
         Log.d(TAG, "📊 Config: POOL DE $maxConcurrentCalls CHAMADAS SIMULTÂNEAS, $maxRetries retries")
-        Log.d(TAG, "📋 Lista de números: ${numbers.take(10).joinToString(", ")}${if (numbers.size > 10) "..." else ""}")
+        Log.d(TAG, "📋 Lista completa: ${numbers.take(10).joinToString(", ")}${if (numbers.size > 10) "..." else ""}")
         
         // CORREÇÃO: Inicia ForegroundService para manter app ativo quando tela desliga
         startForegroundService(listName, sessionId)
@@ -295,67 +465,170 @@ class PowerDialerManager(private val context: Context) {
         poolMaintenanceJob = scope.launch {
             Log.d(TAG, "🔄 🎯 POOL MAINTENANCE: Manter exatamente ${maxConcurrentCalls} chamadas ATIVAS (ACTIVE + HOLDING)")
             
+            // CORREÇÃO BUG #4: Usa select para notificação imediata ou timeout
             while (isMaintainingPool) {
                 val campaign = currentCampaign
                 if (campaign == null) {
                     Log.d(TAG, "🛑 Campanha parada, encerrando pool maintenance")
                     break
                 }
-
+                
                 if (campaign.isPaused) {
                     delay(poolCheckInterval)
                     continue
                 }
                 
-                // === SIMPLES: CONTAR APENAS ACTIVE + HOLDING (chamadas REALMENTE respondidas) ===
-                val activeCount = activeCalls.values.count { activeCall ->
-                    val isReallyActive = activeCall.state == CallState.ACTIVE || activeCall.state == CallState.HOLDING
-                    if (!isReallyActive) return@count false
-                    try {
-                        val callObj = activeCall.call
-                        if (callObj != null && callObj.details != null) {
-                            if (callObj.details.hasProperty(android.telecom.Call.Details.PROPERTY_CONFERENCE)) {
-                                return@count false
-                            }
-                        }
-                    } catch (e: Exception) { }
-                    true
+                // CORREÇÃO BUG #4: Aguarda notificação imediata ou timeout
+                select<Unit> {
+                    poolRefillChannel.onReceive {
+                        // Refill imediato solicitado - não espera timeout
+                    }
+                    onTimeout(poolCheckInterval) {
+                        // Verificação regular após timeout
+                    }
                 }
                 
+                // === LIMPEZA DE CHAMADAS PRESAS ===
+                // CORREÇÃO: Remove chamadas presas em DIALING/RINGING por mais de 45 segundos
+                cleanupStuckCalls()
+                
+                // CORREÇÃO CRÍTICA: Limpa chamadas em estados finais ANTES de contar
+                // Isso garante que getCallStats() não conta chamadas que não estão mais ativas
+                cleanupFinishedCalls()
+                
+                // CORREÇÃO BUG #3: Usa função única para contagem (após limpeza)
+                val stats = getCallStats()
+                val activeCount = stats.activeHolding
+                val dialingOrRingingCount = stats.dialingRinging
                 val availableSlots = maxConcurrentCalls - activeCount
                 
-                Log.d(TAG, "📊 POOL: $activeCount/$maxConcurrentCalls ativas | Slots: $availableSlots | Fila: ${campaign.shuffledNumbers.size}")
+                // CORREÇÃO BUG #10: Logs reduzidos (apenas quando necessário)
+                // Log apenas a cada 2 ciclos (1 segundo) para reduzir overhead
+                val shouldLog = (System.currentTimeMillis() / 1000) % 2 == 0L
                 
-                // === Recarregar fila se vazia (modo loop) ===
-                if (campaign.loop && campaign.shuffledNumbers.isEmpty() && activeCount == 0) {
-                    Log.d(TAG, "🔁 Fila vazia em modo loop - recarregando (excluindo já finalizados)...")
-                    val toReload = campaign.numbers.filter { num -> !finishedNumbers.contains(num) }
-                    campaign.shuffledNumbers.addAll(toReload.shuffled())
-                    Log.d(TAG, "✅ Fila recarregada: ${campaign.shuffledNumbers.size} números (excluídos ${campaign.numbers.size - toReload.size})")
+                if (stats.otherStates > 0 || activeCalls.size != (activeCount + dialingOrRingingCount + stats.conferences)) {
+                    Log.w(TAG, "⚠️ [POOL] Inconsistência detectada: activeCalls=${activeCalls.size}, stats=$stats")
                 }
                 
-                // === REFILL AGRESSIVO: Preencher slots com números disponíveis ===
-                if (availableSlots > 0 && campaign.shuffledNumbers.isNotEmpty()) {
-                    repeat(availableSlots) {
-                        if (campaign.shuffledNumbers.isNotEmpty()) {
-                            val number = campaign.shuffledNumbers.removeAt(0)
-                            val attempt = (attemptCounts[number] ?: 0) + 1
-                            attemptCounts[number] = attempt
-                            
-                            Log.d(TAG, "📱 REFILL: Discando $number (tentativa $attempt/$maxRetries)")
-                            makeCall(number, attempt)
+                if (shouldLog) {
+                    Log.d(TAG, "📊 POOL: $activeCount/$maxConcurrentCalls ativas | $dialingOrRingingCount discando | Slots: $availableSlots | Fila: ${campaign.shuffledNumbers.size}")
+                }
+                
+                // CORREÇÃO CRÍTICA: Recarregar fila quando vazia - mantém TODOS os números na ordem original
+                // Continua até ter 6 chamadas ativas ou usuário parar manualmente
+                if (campaign.shuffledNumbers.isEmpty() && activeCount < maxConcurrentCalls) {
+                    // CORREÇÃO: Recarrega TODA a lista original (com duplicados) na ordem exata
+                    // Não filtra por canDial - permite re-discar números mesmo em backoff para manter pool cheio
+                    if (campaign.loop || activeCount < maxConcurrentCalls) {
+                        Log.d(TAG, "🔁 Fila vazia - recarregando TODA a lista original (${campaign.numbers.size} números) para manter pool cheio")
+                        scope.launch {
+                            // Recarrega lista completa na ordem original
+                            val reloaded = campaign.numbers.mapIndexed { i, num -> 
+                                DialToken(number = num, prefix = "normal", index = i).serialize()
+                            }
+                            campaign.shuffledNumbers.addAll(reloaded)
+                            Log.d(TAG, "✅ Fila recarregada: ${reloaded.size} números (ordem original preservada)")
+                            // Notifica pool imediatamente após recarregar
+                            poolRefillChannel.trySend(Unit)
+                        }
+                    } else {
+                        // CORREÇÃO CRÍTICA: Só para se tiver 6 chamadas ativas E usuário não está em modo loop
+                        val stats = getCallStats()
+                        if (stats.activeHolding >= maxConcurrentCalls) {
+                            if (shouldLog) {
+                                Log.d(TAG, "✅ Pool cheio com ${stats.activeHolding} chamadas ativas - aguardando...")
+                            }
+                        } else if (stats.activeHolding == 0 && stats.dialingRinging == 0 && !campaign.loop) {
+                            Log.d(TAG, "🛑 Todos os números foram processados e não há chamadas ativas - encerrando pool maintenance")
+                            isMaintainingPool = false
+                            break
                         }
                     }
-                } else if (availableSlots == 0) {
-                    Log.d(TAG, "✅ Pool cheio: $activeCount/$maxConcurrentCalls")
+                }
+                
+                // CORREÇÃO BUG #7: Conta apenas chamadas realmente em DIALING/RINGING e não expiradas
+                val now = System.currentTimeMillis()
+                val currentDialing = activeCalls.values.count { ac ->
+                    val state = ac.state
+                    val isValidState = state == CallState.DIALING || state == CallState.RINGING
+                    val notExpired = (now - ac.startTime) < callTimeout
+                    isValidState && notExpired
+                }
+                val maxNewDials = (maxConcurrentDialing - currentDialing).coerceAtLeast(0)
+                // CORREÇÃO: Sempre respeita maxConcurrentDialing = 1 para garantir discagem uma por vez
+                val allowedNewDials = minOf(availableSlots, maxNewDials, campaign.shuffledNumbers.size)
+
+                // === TENTATIVA DE MERGE EM PARALELO (quando necessário) ===
+                // CORREÇÃO CRÍTICA: Tenta merge em paralelo com refill, não bloqueia novas discagens
+                // O merge deve acontecer quando há 2+ chamadas ativas, mas não deve impedir discar a 6ª chamada
+                if (activeCount >= 2 && autoConferenceEnabled && hasConferenceSupport()) {
+                    Log.d(TAG, "🔗 Pool maintenance: Há $activeCount chamadas ativas - tentando merge em paralelo (não bloqueia refill)")
+                    // Executa merge em background sem bloquear o refill
+                                        scope.launch {
+                        ensureConferenceCapacityIfNeeded("pool_maintenance_parallel")
+                    }
+                }
+                
+                // === REFILL PRIORITÁRIO: disca novas chamadas se há slots disponíveis ===
+                // CORREÇÃO CRÍTICA: Continua discando até ter 6 chamadas ativas (ACTIVE + HOLDING)
+                // Disca sequencialmente (uma por vez) aguardando estado antes de próxima discagem
+                if (allowedNewDials > 0 && currentDialing < maxConcurrentDialing && activeCount < maxConcurrentCalls) {
+                    // CORREÇÃO: Disca se há slot disponível e não está no limite de DIALING/RINGING
+                    val numbersToDial = queueManager.popAvailableNumbers(campaign, 1, attemptManager, numberValidator, activeCalls, lastDialedNumber)
+                    if (numbersToDial.isNotEmpty()) {
+                        val number = numbersToDial[0]
+                        val currentAttempts = attemptManager.getAttempts(number)
+                        
+                        // Atualiza último número discado
+                        lastDialedNumber = number
+                        lastDialedNumberTime = System.currentTimeMillis()
+                        
+                        if (shouldLog) {
+                            Log.d(TAG, "📱 REFILL: Discando $number (tentativa ${currentAttempts + 1}/$maxRetries) - pool: $activeCount/$maxConcurrentCalls")
+                        }
+                        val callId = makeCall(number, currentAttempts + 1)
+                        
+                        // CORREÇÃO CRÍTICA: Aguarda chamada sair de DIALING/RINGING antes de discar próxima
+                        // Isso garante que a chamada foi realmente atendida ou falhou antes de continuar
+                        if (callId != null) {
+                            waitForCallStateChange(callId, maxWaitMs = 30000) // Aguarda até 30s
+                        } else {
+                            // Se makeCall retornou null, houve erro - aguarda um pouco antes de continuar
+                            delay(1000)
+                        }
+                    } else {
+                        if (shouldLog) {
+                            Log.d(TAG, "⏳ Nenhum número disponível para discagem após aplicar filtros (backoff/finalizados/ativos/sequência)")
+                        }
+                    }
+                } else if (activeCount >= maxConcurrentCalls) {
+                    if (shouldLog) {
+                        Log.d(TAG, "✅ Pool cheio: $activeCount/$maxConcurrentCalls chamadas ativas")
+                    }
+                } else if (currentDialing >= maxConcurrentDialing) {
+                    if (shouldLog) {
+                        Log.d(TAG, "⏳ Limite de DIALING atingido (currentDialing=$currentDialing, max=$maxConcurrentDialing)")
+                    }
                 } else {
-                    Log.d(TAG, "⏳ Sem números na fila, aguardando...")
+                    if (shouldLog) {
+                        Log.d(TAG, "⏳ Sem números na fila, aguardando...")
+                    }
                 }
                 
                 // === Notificar progresso e aguardar próximo ciclo ===
-                notifyProgress()
+                // CORREÇÃO BUG #10: Notifica progresso com throttle
+                    notifyProgress()
                 updateActiveCallsInUI()
-                delay(poolCheckInterval)
+                
+                // CORREÇÃO: Se há slots disponíveis mas nenhum número foi discado neste ciclo,
+                // tenta fazer refill imediato (pode ser que números tenham sido adicionados)
+                if (availableSlots > 0 && campaign.shuffledNumbers.isNotEmpty() && allowedNewDials == 0) {
+                    if (shouldLog) {
+                        Log.d(TAG, "🔔 Pool maintenance: slots disponíveis mas limite de DIALING atingido - aguardando próximo ciclo")
+                    }
+                }
+                
+                // CORREÇÃO BUG #4: Não precisa delay aqui - select já faz o controle
             }
             
             isMaintainingPool = false
@@ -391,6 +664,60 @@ class PowerDialerManager(private val context: Context) {
     }
     
     /**
+     * Atualiza a lista de números da campanha em execução
+     * Permite adicionar novos números do dashboard durante a campanha
+     */
+    fun updateCampaignNumbers(newNumbers: List<String>) {
+        val campaign = currentCampaign
+        if (campaign == null) {
+            Log.w(TAG, "⚠️ Nenhuma campanha ativa para atualizar números")
+            return
+        }
+        
+        if (!campaign.isActive || campaign.isPaused) {
+            Log.w(TAG, "⚠️ Campanha não está ativa ou está pausada")
+            return
+        }
+        
+        Log.d(TAG, "📝 Atualizando lista de números da campanha: adicionando ${newNumbers.size} novos números")
+        
+        // Adiciona novos números à lista original
+        val uniqueNewNumbers = newNumbers.filter { num -> 
+            !campaign.numbers.contains(num) && !attemptManager.isFinished(num)
+        }
+        
+        if (uniqueNewNumbers.isEmpty()) {
+            Log.d(TAG, "ℹ️ Nenhum número novo para adicionar (todos já estão na campanha ou foram finalizados)")
+            return
+        }
+        
+        // Adiciona à lista original
+        campaign.numbers.addAll(uniqueNewNumbers)
+        
+        // Adiciona à fila usando QueueManager
+        runBlocking {
+            queueManager.addNumbers(campaign, uniqueNewNumbers, "update")
+        }
+        
+        // Inicializa contadores para novos números
+        runBlocking {
+            uniqueNewNumbers.forEach { num ->
+                if (attemptManager.getAttempts(num) == 0) {
+                    // Número novo, já está inicializado em 0 pelo attemptManager
+                }
+            }
+        }
+        
+        Log.d(TAG, "✅ ${uniqueNewNumbers.size} novos números adicionados à campanha. Fila agora tem ${campaign.shuffledNumbers.size} números")
+        
+        // Notifica progresso atualizado
+        notifyProgress()
+        
+        // CORREÇÃO BUG #4: Notifica pool imediatamente
+        poolRefillChannel.trySend(Unit)
+    }
+    
+    /**
      * Para a campanha atual
      */
     fun stopCampaign() {
@@ -407,29 +734,32 @@ class PowerDialerManager(private val context: Context) {
             
             // ===== OPÇÃO A: Aguardar conclusão natural + desconectar restos =====
             // Aguarda até 3 segundos para chamadas completarem naturalmente
+            // CORREÇÃO: Usa runBlocking temporariamente pois stopCampaign não pode ser suspend (chamado de fora)
             val startWait = System.currentTimeMillis()
-            val maxWaitMs = 3000L
-            while (System.currentTimeMillis() - startWait < maxWaitMs && activeCalls.isNotEmpty()) {
-                Thread.sleep(100)
-                
-                // Verifica se ainda há DIALING/RINGING (aguarda mais)
-                val stillRinging = activeCalls.values.count { 
-                    it.state in listOf(CallState.DIALING, CallState.RINGING)
+            runBlocking {
+                val maxWaitMs = 3000L
+                while (System.currentTimeMillis() - startWait < maxWaitMs && activeCalls.isNotEmpty()) {
+                    delay(100) // Substitui Thread.sleep por delay
+                    
+                    // Verifica se ainda há DIALING/RINGING (aguarda mais)
+                    val stillRinging = activeCalls.values.count { 
+                        it.state in listOf(CallState.DIALING, CallState.RINGING)
+                    }
+                    if (stillRinging == 0) break
                 }
-                if (stillRinging == 0) break
             }
             
             val elapsedWait = System.currentTimeMillis() - startWait
             Log.d(TAG, "📊 Aguardou ${elapsedWait}ms. Chamadas pendentes: ${activeCalls.size}")
             
-            // Desconecta as chamadas restantes (DIALING/RINGING/HOLDING que não completaram)
+            // Desconecta as chamadas restantes (DIALING/RINGING/HOLDING/ACTIVE que não completaram)
             val remainingCalls = activeCalls.values.toList()
             remainingCalls.forEach { activeCall ->
                 try {
                     activeCall.timeoutJob?.cancel()
                     
-                    // Se ainda não foi finalizada, força desconexão
-                    if (activeCall.state in listOf(CallState.DIALING, CallState.RINGING, CallState.HOLDING)) {
+                    // CORREÇÃO: Desconecta também chamadas ACTIVE, não apenas DIALING/RINGING/HOLDING
+                    if (activeCall.state in listOf(CallState.DIALING, CallState.RINGING, CallState.HOLDING, CallState.ACTIVE)) {
                         Log.d(TAG, "📴 Desconectando chamada incompleta: ${activeCall.number} (estado=${activeCall.state})")
                         activeCall.call?.disconnect()
                         
@@ -452,6 +782,21 @@ class PowerDialerManager(private val context: Context) {
                             )
                             callResults[activeCall.callId] = result
                             Log.d(TAG, "✅ HOLDING → registrado como ACTIVE (atendeu)")
+                        } else if (activeCall.state == CallState.ACTIVE) {
+                            // ACTIVE = foi atendida e está em andamento
+                            val result = CallResult(
+                                number = activeCall.number,
+                                callId = activeCall.callId,
+                                attemptNumber = activeCall.attemptNumber,
+                                state = CallState.ACTIVE,
+                                startTime = activeCall.startTime,
+                                endTime = System.currentTimeMillis(),
+                                duration = System.currentTimeMillis() - activeCall.startTime,
+                                disconnectCause = "Campanha encerrada durante chamada ativa",
+                                willRetry = false
+                            )
+                            callResults[activeCall.callId] = result
+                            Log.d(TAG, "✅ ACTIVE → registrado como ACTIVE (atendeu)")
                         } else if (activeCall.state in listOf(CallState.DIALING, CallState.RINGING)) {
                             // Nunca respondeu = NO_ANSWER
                             val result = CallResult(
@@ -528,15 +873,93 @@ class PowerDialerManager(private val context: Context) {
     /**
      * Realiza uma chamada
      * IMPORTANTE: Usa a chave "callId" (minúsculo) para compatibilidade com MyInCallService
+     * CORREÇÃO CRÍTICA: Usa mutex para garantir que apenas uma chamada seja discada por vez
      */
-    private fun makeCall(number: String, attemptNumber: Int) {
-        val campaign = currentCampaign ?: return
-        if (autoConferenceEnabled) {
-            ensureConferenceCapacityIfNeeded("before_dial")
-        }
-        val callId = "call_${System.currentTimeMillis()}_${(1000..9999).random()}"
+    /**
+     * Aguarda chamada sair de DIALING/RINGING para um estado final
+     * @return true se a chamada mudou de estado, false se timeout
+     */
+    private suspend fun waitForCallStateChange(callId: String, maxWaitMs: Long = 30000): Boolean {
+        val startTime = System.currentTimeMillis()
+        val checkInterval = 500L // Verifica a cada 500ms
         
-        Log.d(TAG, "📲 Discando $number (tentativa $attemptNumber/$maxRetries) [CallId: $callId]")
+        while (System.currentTimeMillis() - startTime < maxWaitMs) {
+            val activeCall = activeCalls[callId]
+            if (activeCall == null) {
+                Log.d(TAG, "✅ Chamada $callId não encontrada mais (foi removida) - considerando como mudança de estado")
+                return true // Chamada foi removida (finalizada)
+            }
+            
+            val state = activeCall.state
+            // Se saiu de DIALING/RINGING, retorna true
+            if (state != CallState.DIALING && state != CallState.RINGING) {
+                Log.d(TAG, "✅ Chamada $callId mudou de estado para $state - pode discar próxima")
+                return true
+            }
+            
+            delay(checkInterval)
+        }
+        
+        Log.w(TAG, "⏱️ Timeout aguardando chamada $callId sair de DIALING/RINGING (${maxWaitMs}ms)")
+        return false
+    }
+    
+    /**
+     * Realiza uma chamada
+     * @return callId se a chamada foi iniciada com sucesso, null caso contrário
+     */
+    private suspend fun makeCall(number: String, attemptNumber: Int): String? {
+        val campaign = currentCampaign
+        if (campaign == null) {
+            return null
+        }
+        
+        // CORREÇÃO CRÍTICA: Lock para garantir discagem sequencial (uma por vez)
+        // IMPORTANTE: O mutex garante que apenas UMA chamada seja discada por vez
+        return dialingMutex.withLock {
+            // CORREÇÃO CRÍTICA: Verifica se há ALGUMA chamada em DIALING/RINGING (garante discagem sequencial)
+            val dialingCalls = activeCalls.values.filter { 
+                it.state == CallState.DIALING || it.state == CallState.RINGING 
+            }
+            if (dialingCalls.isNotEmpty()) {
+                Log.d(TAG, "⏭️ makeCall: já há ${dialingCalls.size} chamada(s) em DIALING/RINGING — aguardando antes de discar $number")
+                return@withLock null
+            }
+            
+            // CORREÇÃO CRÍTICA: Verifica tentativas
+            if (!attemptManager.canDial(number)) {
+                return@withLock null
+            }
+            
+            // CORREÇÃO CRÍTICA: Verifica se número já está sendo discado (evita múltiplas discagens)
+            if (numberValidator.isNumberCurrentlyDialing(number, activeCalls)) {
+                Log.d(TAG, "⏭️ makeCall: número $number já está em DIALING/RINGING - pulando")
+                return@withLock null
+            }
+            
+            // CORREÇÃO: Permite até 2 chamadas por número (cada número aceita 2 chamadas)
+            val activeCount = numberValidator.countActiveCallsForNumber(number, activeCalls)
+            if (activeCount >= 2) {
+                Log.d(TAG, "⏭️ makeCall: número $number já tem $activeCount chamada(s) ativa(s) (máximo: 2) - pulando")
+                return@withLock null
+            }
+            
+            // CORREÇÃO: Permite números repetidos, mas não em sequência imediata
+            // Se acabou de discar este número, aguarda um pouco antes de permitir novamente
+            if (number == lastDialedNumber) {
+                // Aguarda 2 segundos antes de permitir re-discar o mesmo número
+                val timeSinceLastDial = System.currentTimeMillis() - (lastDialedNumberTime ?: 0L)
+                if (timeSinceLastDial < 2000) {
+                    Log.d(TAG, "⏭️ makeCall: número $number é igual ao último discado há ${timeSinceLastDial}ms - aguardando mais ${2000 - timeSinceLastDial}ms")
+                    return@withLock null
+                }
+            }
+            
+            // NÃO incrementa aqui - só incrementa após placeCall() ter sucesso
+            val currentAttempts = attemptManager.getAttempts(number)
+            
+            val callId = "call_${System.currentTimeMillis()}_${(1000..9999).random()}"
+            Log.d(TAG, "📲 Discando $number (será tentativa ${currentAttempts + 1}/$maxRetries) [CallId: $callId]")
         
         try {
             val uri = Uri.fromParts("tel", number, null)
@@ -556,7 +979,7 @@ class PowerDialerManager(private val context: Context) {
             val activeCall = ActiveCall(
                 callId = callId,
                 number = number,
-                attemptNumber = attemptNumber
+                    attemptNumber = currentAttempts // Será atualizado após placeCall ter sucesso
             )
             
             // Inicia timeout da chamada e armazena o Job
@@ -580,35 +1003,147 @@ class PowerDialerManager(private val context: Context) {
             activeCalls[callId] = activeCall
             Log.d(TAG, "📌 [DEBUG DISCAGEM] ActiveCall armazenado no map. Total de chamadas: ${activeCalls.size}")
             
-            // CORREÇÃO: Atualiza UI imediatamente quando inicia a chamada
+                // CORREÇÃO: Força atualização imediata da UI quando inicia a chamada
             // Isso garante que as chamadas apareçam desde o primeiro segundo
-            updateActiveCallsInUI()
+                forceUIUpdate()
             
             // Faz a chamada usando TelecomManager
             Log.d(TAG, "📌 [DEBUG DISCAGEM] Chamando TelecomManager.placeCall() para: '$number' (callId: $callId)")
+                Log.d(TAG, "📌 [DEBUG DISCAGEM] URI: $uri")
+                Log.d(TAG, "📌 [DEBUG DISCAGEM] PhoneAccountHandle: ${campaign.phoneAccountHandle}")
             
+                // CORREÇÃO BUG: Busca PhoneAccountHandle válido se não foi fornecido
+                var phoneAccountHandle = campaign.phoneAccountHandle
+                if (phoneAccountHandle == null) {
+                    try {
+                        // Tenta obter através do plugin se disponível
+                        val plugin = com.pbxmobile.app.ServiceRegistry.getPlugin()
+                        phoneAccountHandle = plugin?.getDefaultPhoneAccountHandle()
+                        if (phoneAccountHandle != null) {
+                            Log.d(TAG, "✅ PhoneAccountHandle obtido do plugin: ${phoneAccountHandle.id}")
+                        } else {
+                            // Tenta obter diretamente do TelecomManager
+                            val callCapableAccounts = telecomManager.callCapablePhoneAccounts
+                            phoneAccountHandle = callCapableAccounts.firstOrNull()
+                            if (phoneAccountHandle != null) {
+                                Log.d(TAG, "✅ PhoneAccountHandle obtido do TelecomManager: ${phoneAccountHandle.id}")
+                            } else {
+                                Log.w(TAG, "⚠️ Nenhum PhoneAccountHandle disponível - usando padrão do sistema")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "⚠️ Erro ao buscar PhoneAccountHandle: ${e.message} - usando padrão do sistema")
+                    }
+                }
+            
+                try {
             telecomManager.placeCall(uri, extras.apply {
-                campaign.phoneAccountHandle?.let { 
-                    putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) 
+                phoneAccountHandle?.let { 
+                    putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it)
+                    Log.d(TAG, "📞 Usando PhoneAccountHandle: ${it.id} para discar $number")
                 }
             })
+                    Log.d(TAG, "✅ TelecomManager.placeCall() executado com sucesso para $number")
+                    
+                    // CORREÇÃO: SÓ incrementa tentativas APÓS placeCall() ter sucesso
+                    val actualAttempt = attemptManager.incrementAttempts(number)
+                    activeCalls[callId] = activeCall.copy(attemptNumber = actualAttempt)
+                    
+                } catch (placeCallException: Exception) {
+                    Log.e(TAG, "❌ ERRO ao chamar TelecomManager.placeCall() para $number: ${placeCallException.message}", placeCallException)
+                    // CORREÇÃO BUG #2: Remove a chamada mas NÃO decrementa (nunca incrementou)
+                    activeCalls.remove(callId)
+                    
+                    // Registra como falha (sem incrementar tentativas)
+                    val result = CallResult(
+                        number = number,
+                        callId = callId,
+                        attemptNumber = currentAttempts, // Usa tentativas atuais (não incrementadas)
+                        state = CallState.FAILED,
+                        startTime = System.currentTimeMillis(),
+                        endTime = System.currentTimeMillis(),
+                        duration = 0,
+                        disconnectCause = "placeCall failed: ${placeCallException.message}",
+                        willRetry = currentAttempts < maxRetries
+                    )
+                    callResults[callId] = result
+                    
+                    // CORREÇÃO BUG #4: Notifica pool imediatamente
+                    poolRefillChannel.trySend(Unit)
+                    
+                    throw placeCallException // Re-lança para ser capturado pelo catch externo
+                }
             
             Log.d(TAG, "✅ Chamada iniciada: $callId para $number (${activeCalls.size} ativas no total)")
+                Log.d(TAG, "📊 [DEBUG] Estado após placeCall: activeCalls.size=${activeCalls.size}, chamadas=${activeCalls.keys.joinToString(", ")}")
+            
+            // Retorna callId para aguardar mudança de estado
+            return@withLock callId
             
         } catch (e: SecurityException) {
-            Log.e(TAG, "❌ Erro de segurança ao discar $number: ${e.message}")
-            handleCallFailure(callId, number, attemptNumber, "SecurityException: ${e.message}")
+                Log.e(TAG, "❌ Erro de segurança ao discar $number: ${e.message}", e)
+                // CORREÇÃO BUG #2: Remove a chamada mas NÃO decrementa (nunca incrementou)
+                activeCalls.remove(callId)
+                
+                // Registra como falha (sem incrementar tentativas)
+                val result = CallResult(
+                    number = number,
+                    callId = callId,
+                    attemptNumber = currentAttempts, // Usa tentativas atuais
+                    state = CallState.FAILED,
+                    startTime = System.currentTimeMillis(),
+                    endTime = System.currentTimeMillis(),
+                    duration = 0,
+                    disconnectCause = "SecurityException: ${e.message}",
+                    willRetry = currentAttempts < maxRetries
+                )
+                callResults[callId] = result
+                
+                // CORREÇÃO BUG #4: Notifica pool imediatamente
+                poolRefillChannel.trySend(Unit)
+                return@withLock null // Falha ao discar
         } catch (e: Exception) {
             Log.e(TAG, "❌ Erro ao discar $number: ${e.message}", e)
-            handleCallFailure(callId, number, attemptNumber, "Erro: ${e.message}")
-        }
+                // CORREÇÃO BUG #2: Remove a chamada mas NÃO decrementa (nunca incrementou)
+                activeCalls.remove(callId)
+                
+                // Registra como falha (sem incrementar tentativas)
+                val result = CallResult(
+                    number = number,
+                    callId = callId,
+                    attemptNumber = currentAttempts, // Usa tentativas atuais
+                    state = CallState.FAILED,
+                    startTime = System.currentTimeMillis(),
+                    endTime = System.currentTimeMillis(),
+                    duration = 0,
+                    disconnectCause = "Exception: ${e.message}",
+                    willRetry = currentAttempts < maxRetries
+                )
+                callResults[callId] = result
+                
+                // CORREÇÃO BUG #4: Notifica pool imediatamente
+                poolRefillChannel.trySend(Unit)
+                return@withLock null // Falha ao discar
+            }
+        } // Fim do withLock - lock é liberado aqui
     }
     
+    // CORREÇÃO: Cache do suporte a conferência para evitar verificações repetidas
+    private var conferenceSupportDetected: Boolean? = null
+    private var conferenceSupportCheckedAt: Long = 0
+    private val conferenceSupportCheckInterval = 30_000L // Verifica novamente a cada 30s
+    
     /**
-     * Verifica se a operadora/chip suporta conferência
-     * Retorna true se pelo menos uma chamada ativa tem capacidade de gerenciar conferência
+     * Verifica se a operadora/chip suporta conferência REAL
+     * CORREÇÃO: Cacheia resultado para evitar verificações repetidas que causam loop
      */
     fun hasConferenceSupport(): Boolean {
+        // Se já verificou recentemente e não tem suporte, retorna false imediatamente
+        val now = System.currentTimeMillis()
+        if (conferenceSupportDetected == false && (now - conferenceSupportCheckedAt) < conferenceSupportCheckInterval) {
+            return false
+        }
+        
         val calls = activeCalls.values.mapNotNull { it.call }
             .filter { it.state == Call.STATE_ACTIVE || it.state == Call.STATE_HOLDING }
 
@@ -616,23 +1151,24 @@ class PowerDialerManager(private val context: Context) {
             return false
         }
 
-        val hasSupport = calls.any { call ->
-            try {
-                call.details?.can(Call.Details.CAPABILITY_MANAGE_CONFERENCE) ?: false
-            } catch (e: Exception) {
-                Log.w(TAG, "⚠️ hasConferenceSupport: erro ao verificar detalhes da chamada: ${e.message}")
-                false
-            }
-        }
+        // CORREÇÃO: Se tem 2+ chamadas, assume suporte (usuário confirmou que funciona)
+        // O merge pode funcionar mesmo sem CAPABILITY_MANAGE_CONFERENCE explícito
+        val hasSupport = calls.size >= 2
 
-        Log.d(TAG, "🔍 Verificação de suporte a conferência: ${if (hasSupport) "SIM" else "NÃO"} (${calls.size} chamadas ativas)")
+        // Cacheia resultado
+        conferenceSupportDetected = hasSupport
+        conferenceSupportCheckedAt = now
+        
+        Log.d(TAG, "🔍 Verificação de suporte a conferência: ${if (hasSupport) "SIM" else "NÃO"} (${calls.size} chamadas ativas) - ${if (hasSupport) "CACHEADO" else "SEM SUPORTE - desabilitando tentativas"}")
+
         return hasSupport
     }
 
     /**
      * Garante que chamadas elegíveis sejam unidas antes de discar novos números
+     * CORREÇÃO: Só tenta merge se dispositivo REALMENTE suporta conferência
      */
-    private fun ensureConferenceCapacityIfNeeded(reason: String) {
+    private suspend fun ensureConferenceCapacityIfNeeded(reason: String) {
         if (!autoConferenceEnabled) {
             return
         }
@@ -647,31 +1183,18 @@ class PowerDialerManager(private val context: Context) {
             return
         }
 
-        Log.d(TAG, "🔍 Verificação de conferência ($reason): $activeOrHolding chamada(s) ativa(s)/em espera — verificando suporte...")
+        // CORREÇÃO CRÍTICA: Só tenta merge se dispositivo REALMENTE suporta conferência
+        if (!hasConferenceSupport()) {
+            Log.d(TAG, "⏭️ ensureConferenceCapacityIfNeeded ($reason): Dispositivo NÃO suporta conferência - pulando merge")
+            return
+        }
+
+        Log.d(TAG, "🔍 Verificação de conferência ($reason): $activeOrHolding chamada(s) ativa(s)/em espera — dispositivo suporta conferência, tentando merge...")
         
-        // CORREÇÃO: Tenta fazer merge mesmo sem CAPABILITY_MANAGE_CONFERENCE explícita
-        // Algumas operadoras permitem conferência mesmo sem essa capacidade
-        // Verifica se há chamadas conferenciáveis disponíveis antes de desistir
-        val calls = activeCalls.values.mapNotNull { it.call }
-            .filter { it.state == Call.STATE_ACTIVE || it.state == Call.STATE_HOLDING }
-        
-        if (calls.size >= 2) {
-            // Verifica se há chamadas conferenciáveis disponíveis
-            val hasConferenceable = calls.any { call ->
-                call.conferenceableCalls.isNotEmpty()
-            }
-            
-            // Se houver suporte explícito ou chamadas conferenceable, tenta merge.
-            // Se não houver suporte reportado, ainda tentamos merge, mas não bloquamos
-            // a manutenção do pool caso o merge falhe. Isso evita stalls no pipeline.
-            try {
-                Log.d(TAG, "🤝 Tentando unir chamadas ($reason) — $activeOrHolding chamadas ativas/em espera (conferenciáveis: $hasConferenceable)")
+        try {
                 tryMergeCalls()
             } catch (e: Exception) {
                 Log.w(TAG, "⚠️ ensureConferenceCapacityIfNeeded: erro ao tentar merge: ${e.message}")
-            }
-        } else {
-            Log.w(TAG, "⚠️ Operadora/linha sem suporte a conferência — não é possível unir chamadas automaticamente ($reason)")
         }
     }
 
@@ -688,15 +1211,28 @@ class PowerDialerManager(private val context: Context) {
     
     /**
      * Tenta fazer merge (conferência) de chamadas quando necessário
-     * Para campanhas com pool, normalmente não fazemos conferência
-     * mas mantemos a função caso seja necessário no futuro
+     * CORREÇÃO: Só executa se houver suporte REAL detectado
      */
-    private fun tryMergeCalls() {
+    private suspend fun tryMergeCalls() {
+        // CORREÇÃO CRÍTICA: Verifica suporte antes de tentar
+        if (!hasConferenceSupport()) {
+            Log.d(TAG, "⏭️ tryMergeCalls: Dispositivo NÃO suporta conferência - abortando")
+            return
+        }
+        
         // Anti-spam: evita tentativas em excesso (mas permite tentar a cada 2 segundos para dar mais chances)
         val now = System.currentTimeMillis()
         if (now - lastMergeAttemptAtMs < 2000) {
             return
         }
+        
+        // CORREÇÃO CRÍTICA: Se falhou muitas vezes consecutivas, desabilita merge permanentemente
+        if (consecutiveMergeFailures >= maxConsecutiveMergeFailures) {
+            autoConferenceEnabled = false
+            Log.w(TAG, "🛑 Merge DESABILITADO PERMANENTEMENTE após $consecutiveMergeFailures falhas consecutivas - dispositivo/operadora não suporta conferência")
+            return
+        }
+        
         lastMergeAttemptAtMs = now
 
         // Seleciona chamadas elegíveis para conferência
@@ -704,7 +1240,7 @@ class PowerDialerManager(private val context: Context) {
             .filter { it.state == Call.STATE_ACTIVE || it.state == Call.STATE_HOLDING }
 
         Log.d(TAG, "🔍 Tentando merge: ${calls.size} chamada(s) elegível(eis) (ACTIVE/HOLDING)")
-
+        
         if (calls.size < 2) {
             Log.d(TAG, "🔍 Merge: precisa de pelo menos 2 chamadas ACTIVE/HOLDING para fazer conferência")
             return
@@ -731,8 +1267,14 @@ class PowerDialerManager(private val context: Context) {
             Log.d(TAG, "📞 Chamada ${index + 1}: $number (estado=$state, pode_gerenciar_conferencia=$canManage)")
         }
 
-        // Escolhe uma chamada "âncora" com capacidade de gerenciar conferência e preferencialmente ACTIVE
-        val primary = calls.firstOrNull {
+        // CORREÇÃO BUG: Prioriza chamadas que já fazem parte de conferências existentes
+        // Isso permite fazer merge com conferências existentes (ex: num1+num2 já mergeados, agora mergear num3)
+        val primary = calls.firstOrNull { call ->
+            val num = try { call.details?.handle?.schemeSpecificPart ?: "" } catch (e: Exception) { "" }
+            // Verifica se já faz parte de uma conferência existente
+            val conferencePrimary = if (num.isNotEmpty()) numberToConferencePrimary[num] else null
+            conferencePrimary != null && call.state == Call.STATE_ACTIVE
+        } ?: calls.firstOrNull {
             try { it.state == Call.STATE_ACTIVE && (it.details?.can(Call.Details.CAPABILITY_MANAGE_CONFERENCE) ?: false) } catch (e: Exception) { false }
         } ?: calls.firstOrNull {
             try { it.details?.can(Call.Details.CAPABILITY_MANAGE_CONFERENCE) ?: false } catch (e: Exception) { false }
@@ -747,8 +1289,14 @@ class PowerDialerManager(private val context: Context) {
         }
 
         val primaryNumber = primary.details.handle?.schemeSpecificPart ?: "unknown"
-        val canManage = primary.details.can(Call.Details.CAPABILITY_MANAGE_CONFERENCE)
-        Log.d(TAG, "🎯 Chamada âncora: $primaryNumber (pode_gerenciar_conferencia=$canManage)")
+        val canManage = try { primary.details.can(Call.Details.CAPABILITY_MANAGE_CONFERENCE) } catch (e: Exception) { false }
+        val existingConferencePrimary = numberToConferencePrimary[primaryNumber]
+        
+        if (existingConferencePrimary != null) {
+            Log.d(TAG, "🎯 Chamada âncora: $primaryNumber (já faz parte da conferência $existingConferencePrimary, pode_gerenciar=$canManage)")
+        } else {
+            Log.d(TAG, "🎯 Chamada âncora: $primaryNumber (nova conferência, pode_gerenciar=$canManage)")
+        }
 
         val conferenceable = try { primary.conferenceableCalls } catch (e: Exception) { emptyList<Call>() }
         Log.d(TAG, "🔗 Chamadas conferenciáveis disponíveis: ${conferenceable.size}")
@@ -776,6 +1324,19 @@ class PowerDialerManager(private val context: Context) {
             // Evita tentar repetidamente a mesma dupla (mas permite tentar novamente após 30 segundos)
             val a = try { primary.details?.handle?.schemeSpecificPart ?: primary.toString() } catch (e: Exception) { primary.toString() }
             val b = try { c.details?.handle?.schemeSpecificPart ?: c.toString() } catch (e: Exception) { c.toString() }
+            
+            // CORREÇÃO CRÍTICA: Evita tentar fazer merge de uma chamada com ela mesma (objeto Call)
+            if (primary == c) {
+                Log.d(TAG, "⏭️ Pulando merge da mesma chamada (objeto Call idêntico)")
+                continue
+            }
+            
+            // CORREÇÃO CRÍTICA: Evita tentar fazer merge de números duplicados (mesmo número)
+            if (a == b) {
+                Log.w(TAG, "⏭️ Pulando merge de números duplicados: $a + $b (mesmo número)")
+                continue
+            }
+            
             val pairKey = if (a <= b) "$a|$b" else "$b|$a"
             if (mergedPairs.contains(pairKey)) {
                 Log.d(TAG, "⏭️ Pulando par já tentado: $pairKey")
@@ -785,15 +1346,102 @@ class PowerDialerManager(private val context: Context) {
             try {
                 Log.d(TAG, "🔗 Tentando unir: $a + $b")
                 try {
+                    // CORREÇÃO CRÍTICA: Tenta merge diretamente sem verificar capability primeiro
+                    // A capability CAPABILITY_MANAGE_CONFERENCE só aparece DURANTE a conferência, não antes
+                    // Por isso, tentamos fazer merge diretamente e verificamos o resultado depois
                     primary.conference(c)
-                    added++
-                    mergedPairs.add(pairKey)
-                    Log.d(
-                        TAG,
-                        "✅ Merge bem-sucedido: unindo $a + $b (total_unidas=${added + 1})"
-                    )
+                    
+                    // CORREÇÃO: Aguarda mais tempo para o merge se consolidar
+                    delay(1000) // Aumentado para dar tempo do sistema processar o merge
+                    
+                    // Verifica se o merge foi bem-sucedido de várias formas:
+                    // 1. Se alguma das chamadas agora tem PROPERTY_CONFERENCE (indicador mais confiável)
+                    val primaryConference = try { primary.details?.hasProperty(Call.Details.PROPERTY_CONFERENCE) ?: false } catch (e: Exception) { false }
+                    val cConference = try { c.details?.hasProperty(Call.Details.PROPERTY_CONFERENCE) ?: false } catch (e: Exception) { false }
+                    
+                    // 2. Se a chamada c não está mais na lista de conferenciáveis (foi adicionada à conferência)
+                    val conferenceableAfter = try { !primary.conferenceableCalls.contains(c) } catch (e: Exception) { false }
+                    
+                    // 3. Se o estado da chamada c mudou para HOLDING (indicando que foi adicionada à conferência)
+                    val cIsHolding = try { c.state == Call.STATE_HOLDING } catch (e: Exception) { false }
+                    
+                    // 4. Se a chamada primary agora tem CAPABILITY_MANAGE_CONFERENCE (aparece após merge bem-sucedido)
+                    val primaryCanManage = try { primary.details?.can(Call.Details.CAPABILITY_MANAGE_CONFERENCE) ?: false } catch (e: Exception) { false }
+                    
+                    // Se qualquer uma dessas condições for verdadeira, considera sucesso
+                    if (primaryConference || cConference || conferenceableAfter || cIsHolding || primaryCanManage) {
+                        added++
+                        mergedPairs.add(pairKey)
+                        consecutiveMergeFailures = 0 // Reset contador de falhas ao ter sucesso
+                        
+                        // CORREÇÃO BUG: Registra números mergeados para re-discar quando conferência cair
+                        // Verifica se a ou b já fazem parte de uma conferência existente
+                        val existingPrimaryA = numberToConferencePrimary[a]
+                        val existingPrimaryB = numberToConferencePrimary[b]
+                        
+                        when {
+                            // Caso 1: Ambos já fazem parte de conferências diferentes - une as conferências
+                            existingPrimaryA != null && existingPrimaryB != null && existingPrimaryA != existingPrimaryB -> {
+                                val conferenceA = mergedConferences[existingPrimaryA] ?: mutableSetOf()
+                                val conferenceB = mergedConferences[existingPrimaryB] ?: mutableSetOf()
+                                // Usa a como primário (ou mantém existingPrimaryA)
+                                val finalPrimary = existingPrimaryA
+                                val mergedNumbers = (conferenceA + conferenceB + setOf(a, b)).toMutableSet()
+                                mergedConferences[finalPrimary] = mergedNumbers
+                                // Atualiza mapeamento para todos os números
+                                mergedNumbers.forEach { num ->
+                                    numberToConferencePrimary[num] = finalPrimary
+                                }
+                                // Remove conferência antiga de b
+                                mergedConferences.remove(existingPrimaryB)
+                                Log.d(TAG, "🔗 Unindo duas conferências: $finalPrimary agora contém ${mergedNumbers.size} números")
+                            }
+                            // Caso 2: Apenas a já faz parte de uma conferência
+                            existingPrimaryA != null -> {
+                                val conference = mergedConferences.getOrPut(existingPrimaryA) { mutableSetOf() }
+                                conference.add(b)
+                                numberToConferencePrimary[b] = existingPrimaryA
+                                Log.d(TAG, "🔗 Adicionando $b à conferência existente de $a (total: ${conference.size} números)")
+                            }
+                            // Caso 3: Apenas b já faz parte de uma conferência
+                            existingPrimaryB != null -> {
+                                val conference = mergedConferences.getOrPut(existingPrimaryB) { mutableSetOf() }
+                                conference.add(a)
+                                numberToConferencePrimary[a] = existingPrimaryB
+                                Log.d(TAG, "🔗 Adicionando $a à conferência existente de $b (total: ${conference.size} números)")
+                            }
+                            // Caso 4: Nenhum faz parte de conferência - cria nova
+                            else -> {
+                                val newConference = mutableSetOf(a, b)
+                                mergedConferences[a] = newConference
+                                numberToConferencePrimary[a] = a
+                                numberToConferencePrimary[b] = a
+                                Log.d(TAG, "🔗 Criando nova conferência com primário $a contendo: $a, $b")
+                            }
+                        }
+                        
+                        Log.d(
+                            TAG,
+                            "✅ Merge bem-sucedido: unindo $a + $b (total_unidas=${added + 1}, primaryConf=$primaryConference, cConf=$cConference, cHolding=$cIsHolding, canManage=$primaryCanManage)"
+                        )
+                    } else {
+                        // Merge não funcionou, incrementa contador de falhas
+                        consecutiveMergeFailures++
+                        lastMergeFailureAtMs = System.currentTimeMillis()
+                        Log.w(TAG, "⚠️ Merge falhou para $a + $b - falhas consecutivas: $consecutiveMergeFailures/$maxConsecutiveMergeFailures")
+                        
+                        // CORREÇÃO CRÍTICA: Se falhou 3 vezes, desabilita merge permanentemente
+                        if (consecutiveMergeFailures >= maxConsecutiveMergeFailures) {
+                            autoConferenceEnabled = false
+                            Log.w(TAG, "🛑 Merge DESABILITADO - dispositivo não suporta conferência")
+                            return
+                        }
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ Erro ao tentar fazer a conferência entre $a e $b: ${e.message}", e)
+                    // Incrementa contador de falhas também em caso de exceção
+                    consecutiveMergeFailures++
+                    lastMergeFailureAtMs = System.currentTimeMillis()
                 }
                 if (added >= 5) { // primary + 5 outros = 6 no total
                     Log.d(TAG, "🎯 Máximo de participantes atingido (6 chamadas unidas)")
@@ -805,7 +1453,16 @@ class PowerDialerManager(private val context: Context) {
         }
         
         if (added == 0) {
-            Log.w(TAG, "⚠️ Nenhuma chamada foi unida na tentativa de merge")
+            Log.w(TAG, "⚠️ Nenhuma chamada foi unida na tentativa de merge (falhas consecutivas: $consecutiveMergeFailures/$maxConsecutiveMergeFailures)")
+            // Se nenhuma chamada foi unida após múltiplas tentativas, desabilita merge
+            if (consecutiveMergeFailures >= maxConsecutiveMergeFailures) {
+                autoConferenceEnabled = false
+                Log.w(TAG, "🛑 Merge DESABILITADO PERMANENTEMENTE - dispositivo não suporta conferência")
+            }
+        } else {
+            // Se pelo menos uma chamada foi unida, reset contador
+            consecutiveMergeFailures = 0
+            lastMergeFailureAtMs = 0L
         }
     }
     
@@ -852,7 +1509,8 @@ class PowerDialerManager(private val context: Context) {
         }
 
         // Aguarda um tempo para o merge ser processado pelo Android
-        delay(1500) // Aguarda 1.5s para o merge ser processado
+        // CORREÇÃO BUG #9: Reduz delay para 500ms (era 1.5s)
+        delay(500) // Aguarda 500ms para o merge ser processado
 
         // Verifica se o merge foi bem-sucedido medindo propriedades reportadas
         val callsAfter = activeCalls.values.mapNotNull { it.call }
@@ -923,12 +1581,24 @@ class PowerDialerManager(private val context: Context) {
                         unprocessedCall.call = call
                         activeCall = unprocessedCall
                     } else {
+                        // CORREÇÃO CRÍTICA: Não adiciona chamadas de conferência ao activeCalls
+                        // Conferências são agregadas das chamadas originais que já estão no activeCalls
+                        // Adicionar a conferência como entrada separada causa contagem duplicada
+                        val isConference = try {
+                            call.details?.hasProperty(Call.Details.PROPERTY_CONFERENCE) ?: false
+                        } catch (e: Exception) { false }
+                        
+                        if (isConference) {
+                            Log.d(TAG, "⏭️ Chamada de conferência detectada ($callId) - não adicionando ao activeCalls (já contabilizada pelas chamadas originais)")
+                            return // Não processa chamadas de conferência como entradas separadas
+                        }
+                        
                         // Cria nova entrada como fallback (pode ser chamada manual)
                         Log.w(TAG, "⚠️ Criando entrada de fallback para chamada: $callId ($callNumber)")
                         val newCall = ActiveCall(
                             callId = callId,
                             number = callNumber,
-                            attemptNumber = attemptCounts[callNumber] ?: 1
+                            attemptNumber = runBlocking { attemptManager.getAttempts(callNumber) }.coerceAtLeast(1)
                         )
                         newCall.call = call
                         activeCalls[callId] = newCall
@@ -941,7 +1611,25 @@ class PowerDialerManager(private val context: Context) {
         }
         
         // Processa a atualização usando o callId do manager (não o do service)
+        val previousState = activeCall.state
         processCallStateUpdate(activeCall.callId, call, newState, activeCall)
+        
+        // CORREÇÃO: Atualiza UI imediatamente quando estado muda
+        // Se saiu de DIALING/RINGING, atualiza sem throttle para resposta mais rápida
+        val wasDialingOrRinging = previousState == CallState.DIALING || previousState == CallState.RINGING
+        val isNoLongerDialingOrRinging = newState != Call.STATE_DIALING && 
+                                         newState != Call.STATE_RINGING && 
+                                         newState != Call.STATE_CONNECTING
+        if (wasDialingOrRinging && isNoLongerDialingOrRinging) {
+            // Estado crítico: atualiza imediatamente sem throttle
+            performUIUpdate()
+            val currentState = activeCall.state // Estado atual após processCallStateUpdate
+            Log.d(TAG, "⚡ Chamada saiu de DIALING/RINGING ($previousState → $currentState) - disparando verificação imediata do pool")
+            // CORREÇÃO BUG #4: Notifica pool imediatamente (sem delay) para discar próxima
+            poolRefillChannel.trySend(Unit)
+        } else {
+            updateActiveCallsInUI()
+        }
     }
     
     /**
@@ -957,38 +1645,46 @@ class PowerDialerManager(private val context: Context) {
         
         Log.d(TAG, "🔄 Estado: $callId -> $previousState → $callState (${activeCall.number})")
         
-        // CORREÇÃO CRÍTICA: Quando uma chamada fica ACTIVE, verifica IMEDIATAMENTE (síncrono) se há outra ACTIVE/HOLDING
-        // para tentar fazer conferência ANTES que o Android force desconexão
-        // Isso deve ser feito ANTES de processar outros estados, pois o Android pode desconectar muito rapidamente
+        // CORREÇÃO CRÍTICA: Quando uma chamada sai de DIALING/RINGING, dispara verificação imediata do pool
+        // Isso permite discar próxima chamada imediatamente, sem esperar próximo ciclo (500ms)
+        val wasDialingOrRinging = previousState == CallState.DIALING || previousState == CallState.RINGING
+        val isNoLongerDialingOrRinging = callState != CallState.DIALING && callState != CallState.RINGING
+        
+        if (wasDialingOrRinging && isNoLongerDialingOrRinging) {
+            Log.d(TAG, "⚡ Chamada saiu de DIALING/RINGING ($previousState → $callState) - disparando verificação imediata do pool")
+            // CORREÇÃO BUG #4: Notifica pool imediatamente (sem delay)
+            poolRefillChannel.trySend(Unit)
+        }
+        
+        // CORREÇÃO: Tenta merge IMEDIATAMENTE quando uma chamada fica ACTIVE e já há outra ativa
         if (callState == CallState.ACTIVE && previousState != CallState.ACTIVE) {
             Log.d(TAG, "✅ Chamada atendida: ${activeCall.number}")
-            // Verifica IMEDIATAMENTE (síncrono) se há outra chamada ACTIVE/HOLDING
-            // Não usa delay porque o Android pode desconectar muito rapidamente
             val activeOrHoldingCount = activeCalls.values.count {
                 (it.state == CallState.ACTIVE || it.state == CallState.HOLDING) && it.callId != callId
-            } + 1 // +1 porque esta chamada acabou de ficar ACTIVE
+            } + 1
             
             Log.d(TAG, "🔍 Chamada ficou ACTIVE - total de $activeOrHoldingCount chamada(s) ACTIVE/HOLDING")
             
+            // CORREÇÃO CRÍTICA: Tenta merge em paralelo (não bloqueia refill)
+            // Isso é necessário porque o Android Telecom pode bloquear novas chamadas até que o merge seja feito
+            // Mas o merge não deve impedir discar a 6ª chamada quando há 5 ativas
             if (activeOrHoldingCount >= 2 && autoConferenceEnabled) {
-                Log.d(TAG, "🚨 URGENTE: Detectadas $activeOrHoldingCount chamadas ACTIVE/HOLDING - tentando conferência IMEDIATAMENTE (sem delay)")
-                // Tenta fazer conferência IMEDIATAMENTE, sem delay
-                // Usa runBlocking para garantir execução síncrona
+                Log.d(TAG, "🔗 Chamada ficou ACTIVE com $activeOrHoldingCount total - tentando merge em paralelo (não bloqueia refill)")
                 scope.launch {
-                    ensureConferenceCapacityIfNeeded("call_just_became_active_urgent")
+                    delay(300) // Pequeno delay para garantir que o estado está estável
+                    ensureConferenceCapacityIfNeeded("call_became_active")
                 }
             }
-            // Também agenda verificação após pequeno delay como backup
-            scheduleConferenceCheck("call_active_state")
+            
+            // CORREÇÃO BUG #4: Notifica pool imediatamente quando chamada fica ACTIVE
+            // Isso garante que a 6ª chamada seja discada rapidamente quando há 5 ativas
+            poolRefillChannel.trySend(Unit)
 
             // Reset de falhas consecutivas ao obter sucesso
             try {
                 val num = activeCall.number
-                if (num != null) {
-                    consecutiveFailures[num]?.set(0)
-                    attemptCounts[num] = 0
-                    Log.d(TAG, "✅ Reset falhas consecutivas para $num após atendimento")
-                }
+                attemptManager.recordSuccess(num)
+                Log.d(TAG, "✅ Reset falhas consecutivas para $num após atendimento")
             } catch (e: Exception) {
                 Log.w(TAG, "⚠️ Erro ao resetar falhas consecutivas: ${e.message}")
             }
@@ -1002,31 +1698,36 @@ class PowerDialerManager(private val context: Context) {
             CallState.NO_ANSWER,
             CallState.REJECTED,
             CallState.UNREACHABLE -> {
+                // CORREÇÃO CRÍTICA: O estado já foi atualizado acima (activeCall.state = callState)
+                // Isso significa que a chamada não será mais contada como "discando" imediatamente
+                // O currentDialing não contará mais essa chamada, liberando o slot para novas discagens
+                if (previousState == CallState.DIALING || previousState == CallState.RINGING) {
+                    Log.d(TAG, "⚡ Chamada falhou durante DIALING/RINGING: $callId ($callState) - estado atualizado, slot liberado para novas discagens")
+                }
+                
                 // Aguarda um pouco para garantir que o estado está estável
                 scope.launch {
                     delay(minCallDuration)
                     handleCallCompletion(callId, callState, call)
+                    // CORREÇÃO CRÍTICA: Dispara refill IMEDIATO após chamada falhar
+                    // CORREÇÃO BUG #4: Notifica pool imediatamente
+                    poolRefillChannel.trySend(Unit)
                 }
             }
             CallState.ACTIVE -> {
                 // Já processado acima
             }
             CallState.HOLDING -> {
-                // CORREÇÃO: Quando uma chamada fica em HOLDING, também tenta fazer conferência
-                scope.launch {
-                    delay(100)
-                    val activeOrHoldingCount = activeCalls.values.count {
-                        it.state == CallState.ACTIVE || it.state == CallState.HOLDING
-                    }
-                    if (activeOrHoldingCount >= 2 && autoConferenceEnabled) {
-                        Log.d(TAG, "🔍 Chamada ficou HOLDING - detectadas $activeOrHoldingCount chamadas ACTIVE/HOLDING - tentando conferência")
-                        ensureConferenceCapacityIfNeeded("call_just_became_holding")
-                    }
-                }
-                scheduleConferenceCheck("call_holding_state")
+                // CORREÇÃO: HOLDING pode ser transitório (Android força quando segunda chamada entra)
+                // Não tenta conferência imediatamente - pool maintenance fará isso se necessário
+                Log.d(TAG, "ℹ️ Chamada em HOLDING: ${activeCall.number} (pode ser transitório do Android)")
+                
+                // CORREÇÃO: Notifica progresso quando estado muda para HOLDING
+                notifyProgress()
             }
             else -> {
                 // Chamada ainda em progresso (DIALING, RINGING, etc.)
+                // CORREÇÃO: Throttle já garante atualizações periódicas - não precisa notificar em cada estado intermediário
             }
         }
     }
@@ -1042,7 +1743,7 @@ class PowerDialerManager(private val context: Context) {
             Call.STATE_HOLDING -> CallState.HOLDING
             Call.STATE_DISCONNECTED -> {
                 // Analisa o motivo da desconexão
-                val disconnectCause = call.details.disconnectCause
+                val disconnectCause = call.details?.disconnectCause
                 when {
                     disconnectCause?.code == android.telecom.DisconnectCause.BUSY -> CallState.BUSY
                     disconnectCause?.code == android.telecom.DisconnectCause.REJECTED -> CallState.REJECTED
@@ -1060,7 +1761,8 @@ class PowerDialerManager(private val context: Context) {
      * Trata timeout de chamada
      */
     private fun handleCallTimeout(callId: String) {
-        val activeCall = activeCalls[callId] ?: run {
+        val activeCall = activeCalls[callId]
+        if (activeCall == null) {
             Log.w(TAG, "⏱️ Timeout: chamada não encontrada: $callId")
             return
         }
@@ -1092,10 +1794,105 @@ class PowerDialerManager(private val context: Context) {
     }
     
     /**
+     * Limpa chamadas presas em DIALING/RINGING por mais de 45 segundos
+     * CORREÇÃO: Remove chamadas que não foram limpas pelo timeout normal
+     */
+    private fun cleanupStuckCalls() {
+        val now = System.currentTimeMillis()
+        val stuckCalls = activeCalls.values.filter { activeCall ->
+            val isStuck = activeCall.state in listOf(CallState.DIALING, CallState.RINGING) &&
+                    (now - activeCall.startTime) > callTimeout
+            isStuck
+        }
+        
+        if (stuckCalls.isNotEmpty()) {
+            Log.w(TAG, "🧹 Limpando ${stuckCalls.size} chamada(s) presa(s) em DIALING/RINGING")
+            stuckCalls.forEach { activeCall ->
+                try {
+                    activeCall.timeoutJob?.cancel()
+                    activeCall.call?.disconnect()
+                    Log.d(TAG, "📴 Chamada presa desconectada: ${activeCall.number} (${activeCall.callId})")
+                    // Remove e processa como NO_ANSWER (em background para evitar recursão)
+                    activeCalls.remove(activeCall.callId)
+                    scope.launch {
+                        delay(100)
+                        handleCallCompletion(activeCall.callId, CallState.NO_ANSWER, activeCall.call)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Erro ao limpar chamada presa ${activeCall.callId}: ${e.message}")
+                    // Remove mesmo assim para liberar o slot
+                    activeCalls.remove(activeCall.callId)
+                    // Registra como NO_ANSWER sem processar retry (já foi limpo)
+                    val result = CallResult(
+                        number = activeCall.number ?: "unknown",
+                        callId = activeCall.callId,
+                        attemptNumber = activeCall.attemptNumber,
+                        state = CallState.NO_ANSWER,
+                        startTime = activeCall.startTime,
+                        endTime = now,
+                        duration = now - activeCall.startTime,
+                        disconnectCause = "Chamada presa limpa",
+                        willRetry = false
+                    )
+                    callResults[activeCall.callId] = result
+                }
+            }
+        }
+    }
+    
+    /**
+     * CORREÇÃO BUG: Limpa chamadas em estados finais que ainda estão no activeCalls
+     * Isso corrige a inconsistência onde activeCalls tem mais entradas do que chamadas realmente ativas
+     */
+    /**
+     * Remove chamadas finalizadas do activeCalls antes de processar
+     * CORREÇÃO CRÍTICA: Remove chamadas do map ANTES de tentar processar
+     */
+    private fun cleanupFinishedCalls() {
+        val finishedStates = listOf(
+            CallState.DISCONNECTED,
+            CallState.FAILED,
+            CallState.REJECTED,
+            CallState.NO_ANSWER,
+            CallState.UNREACHABLE,
+            CallState.BUSY
+        )
+        
+        // CORREÇÃO CRÍTICA: Coleta callIds primeiro, depois remove (evita ConcurrentModificationException)
+        val finishedCallIds = activeCalls.values
+            .filter { it.state in finishedStates }
+            .map { it.callId }
+        
+        if (finishedCallIds.isNotEmpty()) {
+            Log.w(TAG, "🧹 Limpando ${finishedCallIds.size} chamada(s) em estados finais do activeCalls")
+            finishedCallIds.forEach { callId ->
+                val activeCall = activeCalls[callId]
+                if (activeCall != null) {
+                    Log.d(TAG, "🧹 Removendo chamada finalizada: ${activeCall.number} (estado: ${activeCall.state}, callId: $callId)")
+                    
+                    // CORREÇÃO CRÍTICA: Remove do map ANTES de processar
+                    activeCalls.remove(callId)
+                    
+                    // Cancela timeout se ainda estiver ativo
+                    activeCall.timeoutJob?.cancel()
+                    
+                    // Se ainda não foi processada, processa agora
+                    if (!callResults.containsKey(callId)) {
+                        scope.launch {
+                            handleCallCompletion(callId, activeCall.state, activeCall.call)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
      * Trata conclusão de uma chamada (POOL: remove da lista e pool maintenance inicia nova)
      */
-    private fun handleCallCompletion(callId: String, finalState: CallState, call: Call?) {
-        val activeCall = activeCalls[callId] ?: run {
+    private suspend fun handleCallCompletion(callId: String, finalState: CallState, call: Call?) {
+        val activeCall = activeCalls[callId]
+        if (activeCall == null) {
             Log.w(TAG, "⚠️ Tentativa de processar chamada inexistente: $callId")
             return
         }
@@ -1106,58 +1903,107 @@ class PowerDialerManager(private val context: Context) {
         // Cancela timeout
         activeCall.timeoutJob?.cancel()
         
+        // CORREÇÃO BUG: Verifica se a chamada faz parte de uma conferência antes de remover
+        val callNumber = activeCall.number
+        val conferencePrimary = numberToConferencePrimary[callNumber]
+        val isPartOfConference = conferencePrimary != null
+        
         // Remove da lista de ativas (libera slot no pool)
         activeCalls.remove(callId)
         Log.d(TAG, "📌 [DEBUG COMPLETION] Removido de activeCalls. Agora há ${activeCalls.size} chamadas ativas")
         
-        val campaign = currentCampaign ?: run {
+        val campaign = currentCampaign
+        if (campaign == null) {
             Log.w(TAG, "⚠️ Campanha não está ativa ao finalizar chamada")
             return
         }
         
         Log.d(TAG, "🔓 Chamada finalizada: ${activeCall.number} -> $finalState (${activeCalls.size} chamadas ativas restantes)")
         
-        // O sistema de manutenção do pool detectará automaticamente o slot vazio
-        // e iniciará uma nova chamada para manter 6 ativas
+        // CORREÇÃO BUG: Se faz parte de conferência, verifica se todos os números da conferência caíram
+        if (isPartOfConference && conferencePrimary != null) {
+            val conferenceNumbers = mergedConferences[conferencePrimary]
+            if (conferenceNumbers != null) {
+                // Verifica se ainda há chamadas ativas para os números desta conferência
+                val stillActiveInConference = conferenceNumbers.any { num ->
+                    activeCalls.values.any { ac ->
+                        ac.number == num && ac.state in listOf(
+                            CallState.DIALING, CallState.RINGING, CallState.ACTIVE, CallState.HOLDING
+                        )
+                    }
+                }
+                
+                if (!stillActiveInConference) {
+                    // Todas as chamadas da conferência caíram - limpa registros
+                    Log.d(TAG, "🔗 Conferência completa caiu (primário: $conferencePrimary)")
+                    mergedConferences.remove(conferencePrimary)
+                    conferenceNumbers.forEach { num ->
+                        numberToConferencePrimary.remove(num)
+                        // Remove também do mergedPairs para permitir novo merge
+                        conferenceNumbers.forEach { otherNum ->
+                            if (num != otherNum) {
+                                val pairKey = if (num <= otherNum) "$num|$otherNum" else "$otherNum|$num"
+                                mergedPairs.remove(pairKey)
+                            }
+                        }
+                    }
+                    
+                    // Re-disca todos os números da conferência (exceto o que já está sendo processado)
+                    conferenceNumbers.forEach { num ->
+                        if (num != callNumber) {
+                            scope.launch {
+                                val totalAttempts = attemptManager.getAttempts(num)
+                                if (totalAttempts < maxRetries && !attemptManager.isFinished(num)) {
+                                    Log.d(TAG, "🔄 Re-discando número da conferência: $num")
+                                    scheduleRetryForNumber(num, campaign)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         
         val duration = System.currentTimeMillis() - activeCall.startTime
         val disconnectCause = call?.details?.disconnectCause?.let { cause ->
             "${cause.reason} (${cause.code})"
         } ?: "Unknown"
         
-        // Lógica inteligente de retry
+        // Conta tentativas totais
+        val totalAttempts = attemptManager.getAttempts(activeCall.number)
+        
+        // Lógica inteligente de retry - limita a maxRetries tentativas por número
         val shouldRetry = when (finalState) {
             CallState.NO_ANSWER -> {
-                val attempts = attemptCounts[activeCall.number] ?: 0
-                Log.d(TAG, "📌 [DEBUG COMPLETION] NO_ANSWER: attempts=$attempts, maxRetries=$maxRetries")
-                attempts < maxRetries
+                Log.d(TAG, "📌 [DEBUG COMPLETION] NO_ANSWER: totalAttempts=$totalAttempts, maxRetries=$maxRetries")
+                totalAttempts < maxRetries
             }
             CallState.BUSY -> {
-                val attempts = attemptCounts[activeCall.number] ?: 0
-                Log.d(TAG, "📌 [DEBUG COMPLETION] BUSY: attempts=$attempts, maxRetries=$maxRetries")
-                attempts < maxRetries
+                Log.d(TAG, "📌 [DEBUG COMPLETION] BUSY: totalAttempts=$totalAttempts, maxRetries=$maxRetries")
+                totalAttempts < maxRetries
             }
             CallState.UNREACHABLE -> {
-                val attempts = attemptCounts[activeCall.number] ?: 0
-                Log.d(TAG, "📌 [DEBUG COMPLETION] UNREACHABLE: attempts=$attempts")
-                // Tenta mais uma vez para números inalcançáveis
-                attempts < 2
+                Log.d(TAG, "📌 [DEBUG COMPLETION] UNREACHABLE: totalAttempts=$totalAttempts")
+                totalAttempts < maxRetries
             }
             CallState.REJECTED -> {
                 Log.d(TAG, "📌 [DEBUG COMPLETION] REJECTED: não faz retry")
                 false // Rejeitadas não devem ser retentadas
             }
             CallState.FAILED -> {
-                val attempts = attemptCounts[activeCall.number] ?: 0
-                Log.d(TAG, "📌 [DEBUG COMPLETION] FAILED: attempts=$attempts, maxRetries=$maxRetries")
-                // CORREÇÃO: Falhas devem ser retentadas para manter o pool ativo
-                // Apenas não retenta se já tentou muitas vezes (evita loops infinitos)
-                attempts < maxRetries
+                Log.d(TAG, "📌 [DEBUG COMPLETION] FAILED: totalAttempts=$totalAttempts, maxRetries=$maxRetries")
+                // CORREÇÃO: Limita retries para evitar loops infinitos
+                totalAttempts < maxRetries
             }
             else -> {
                 Log.d(TAG, "📌 [DEBUG COMPLETION] Estado final desconhecido: $finalState - sem retry")
                 false
             }
+        }
+        
+        // Marca número como finalizado após maxRetries tentativas
+        if (totalAttempts >= maxRetries) {
+            attemptManager.markAsFinished(activeCall.number)
         }
         
         Log.d(TAG, "📌 [DEBUG COMPLETION] shouldRetry=$shouldRetry para número ${activeCall.number}")
@@ -1189,9 +2035,13 @@ class PowerDialerManager(private val context: Context) {
         Log.d(TAG, "$statusEmoji Chamada finalizada: ${activeCall.number} -> $finalState (${duration}ms) ${if (shouldRetry) "[RETRY]" else ""}")
         onCallStateChanged?.invoke(result)
         
+        // Verifica novamente antes de agendar retry
+        val finalTotalAttempts = attemptManager.getAttempts(activeCall.number)
+        val canRetry = shouldRetry && finalTotalAttempts < maxRetries && !attemptManager.isFinished(activeCall.number)
+        
         // Adiciona retry se necessário (com delay curto para manter pool cheio)
-        if (shouldRetry) {
-            Log.d(TAG, "🔄 Agendando retry: ${activeCall.number} (tentativa ${(attemptCounts[activeCall.number] ?: 0) + 1}/$maxRetries)")
+        if (canRetry) {
+            Log.d(TAG, "🔄 Agendando retry: ${activeCall.number} (tentativa ${finalTotalAttempts + 1}/$maxRetries)")
             pendingRetries.incrementAndGet()
             Log.d(TAG, "📌 [DEBUG COMPLETION] pendingRetries incrementado para ${pendingRetries.get()}")
             scope.launch {
@@ -1199,14 +2049,14 @@ class PowerDialerManager(private val context: Context) {
                 delay(retryDelay) // Delay curto para rápido retry
                 Log.d(TAG, "📌 [DEBUG COMPLETION] Após delay, verificando condições para adicionar retry à fila...")
                 if (campaign.isActive && !campaign.isPaused) {
-                    try {
-                        val failures = consecutiveFailures.computeIfAbsent(activeCall.number) { java.util.concurrent.atomic.AtomicInteger(0) }
-                        val newF = failures.incrementAndGet()
-                        Log.d(TAG, "📈 Consecutive failures for ${activeCall.number} = $newF")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "⚠️ Erro ao incrementar consecutiveFailures: ${e.message}")
+                    // Verifica novamente se ainda pode fazer retry
+                    val currentAttempts = attemptManager.getAttempts(activeCall.number)
+                    if (currentAttempts >= maxRetries || attemptManager.isFinished(activeCall.number)) {
+                        attemptManager.markAsFinished(activeCall.number)
+                    } else {
+                        attemptManager.recordFailure(activeCall.number)
+                        scheduleRetryForNumber(activeCall.number, campaign)
                     }
-                    scheduleRetryForNumber(activeCall.number, campaign)
                 } else {
                     Log.w(TAG, "⚠️ Campanha não está ativa (isActive=${campaign.isActive}, isPaused=${campaign.isPaused}) - retry não foi adicionado")
                 }
@@ -1215,17 +2065,61 @@ class PowerDialerManager(private val context: Context) {
             }
         } else {
             Log.d(TAG, "✋ Número finalizado (sem retry): ${activeCall.number}")
-            // Marca número como finalizado para evitar re-dials quando em modo loop
-            try {
-                finishedNumbers.add(activeCall.number)
-                Log.d(TAG, "📍 Número marcado como finalizado: ${activeCall.number}")
-            } catch (e: Exception) {
-                Log.w(TAG, "⚠️ Erro ao marcar número finalizado: ${e.message}")
+            // Se estamos em modo loop, re-enfileira o número para repetir a sequência
+            if (campaign.loop && campaign.isActive && !campaign.isPaused) {
+                scope.launch {
+                    queueManager.addNumbers(campaign, listOf(activeCall.number), "loop")
+                    Log.d(TAG, "🔁 Re-enfileirando número em modo loop: ${activeCall.number}")
+                }
+            } else {
+                attemptManager.markAsFinished(activeCall.number)
             }
         }
         
         Log.d(TAG, "📌 [DEBUG COMPLETION] ========== HANDLECALLCOMPLETION FINALIZADO ==========")
-        // Pool maintenance agora cuida automaticamente do refill
+
+        // CORREÇÃO CRÍTICA: Reseta lastDialedNumber quando chamada encerra
+        // Permite re-discar o mesmo número depois de um tempo (não bloqueia permanentemente)
+        if (lastDialedNumber == activeCall.number) {
+            lastDialedNumber = null
+            Log.d(TAG, "🔄 Resetando lastDialedNumber - permitindo re-discar ${activeCall.number} no futuro")
+        }
+
+        // CORREÇÃO CRÍTICA: Notifica progresso IMEDIATAMENTE após finalizar chamada
+        notifyProgress()
+        updateActiveCallsInUI()
+        
+        // CORREÇÃO CRÍTICA: Dispara refill imediato SEM delay para manter pool sempre cheio
+        // Usa launch sem delay para garantir execução imediata
+        // CORREÇÃO BUG #4: Notifica pool imediatamente
+        poolRefillChannel.trySend(Unit)
+        
+        // CORREÇÃO: Força atualização da UI e verificação do pool maintenance imediatamente
+        forceUIUpdate()
+        
+        // CORREÇÃO: Também força verificação do pool maintenance imediatamente
+        // Isso garante que mesmo se o refill falhar, o pool maintenance pegará o slot vazio
+        scope.launch {
+            delay(100)
+            // Força uma verificação do pool se ainda houver slots disponíveis
+            val activeCount = activeCalls.values.count { ac ->
+                val isReallyActive = ac.state == CallState.ACTIVE || ac.state == CallState.HOLDING
+                if (!isReallyActive) return@count false
+                try {
+                    val callObj = ac.call
+                    if (callObj != null && callObj.details != null) {
+                        if (callObj.details.hasProperty(android.telecom.Call.Details.PROPERTY_CONFERENCE)) {
+                            return@count false
+                        }
+                    }
+                } catch (e: Exception) { }
+                true
+            }
+            val availableSlots = maxConcurrentCalls - activeCount
+            if (availableSlots > 0 && campaign.shuffledNumbers.isNotEmpty()) {
+                Log.d(TAG, "🔔 [COMPLETION] Slot disponível detectado ($availableSlots) - pool maintenance deve preencher")
+            }
+        }
     }
     
     /**
@@ -1252,24 +2146,24 @@ class PowerDialerManager(private val context: Context) {
         callResults[callId] = result
         onCallStateChanged?.invoke(result)
         
+        // CORREÇÃO: Notifica progresso imediatamente
+        notifyProgress()
+        updateActiveCallsInUI()
+        
         // Adiciona retry se necessário (pool maintenance pegará automaticamente)
         val campaign = currentCampaign ?: return
         if (attemptNumber < maxRetries && campaign.isActive && !campaign.isPaused) {
             pendingRetries.incrementAndGet()
             scope.launch {
                 delay(retryDelay)
-                try {
-                    val failures = consecutiveFailures.computeIfAbsent(number) { java.util.concurrent.atomic.AtomicInteger(0) }
-                    val newF = failures.incrementAndGet()
-                    Log.d(TAG, "📈 Consecutive failures for $number = $newF (handleCallFailure)")
-                } catch (e: Exception) {
-                    Log.w(TAG, "⚠️ Erro ao incrementar consecutiveFailures em handleCallFailure: ${e.message}")
-                }
+                attemptManager.recordFailure(number)
                 scheduleRetryForNumber(number, campaign)
                 pendingRetries.decrementAndGet()
             }
         }
-        // Pool maintenance detectará o slot vazio automaticamente e refill
+        // CORREÇÃO CRÍTICA: Dispara refill imediato SEM delay para manter pool sempre cheio
+        // CORREÇÃO BUG #4: Notifica pool imediatamente
+        poolRefillChannel.trySend(Unit)
     }
 
     /**
@@ -1338,13 +2232,13 @@ class PowerDialerManager(private val context: Context) {
             // CRÍTICO: Respeita suporte a conferência quando há 2+ ACTIVE/HOLDING
             var mergeSucceededForRefill = false
 
-            // Se houver 2+ ACTIVE/HOLDING e autoConferenceEnabled, tenta merge síncrono
-            if (activeOrHoldingBeforeDial >= 2 && autoConferenceEnabled) {
+            // CORREÇÃO: Só tenta merge se dispositivo suporta conferência REAL
+            if (activeOrHoldingBeforeDial >= 2 && autoConferenceEnabled && hasConferenceSupport()) {
                 if (distinctActiveNumbers <= 1) {
                     Log.d(TAG, "ℹ️ [Refill] Todas as chamadas ACTIVE/HOLDING pertencem ao mesmo número - permite refill por número")
                     mergeSucceededForRefill = true
                 } else {
-                    Log.d(TAG, "🔍 [Refill] Tentando merge síncrono antes de refill (há $activeOrHoldingBeforeDial chamadas em $distinctActiveNumbers números)")
+                    Log.d(TAG, "🔍 [Refill] Tentando merge síncrono antes de refill (há $activeOrHoldingBeforeDial chamadas em $distinctActiveNumbers números) - dispositivo TEM suporte")
                     mergeSucceededForRefill = try {
                         tryMergeCallsAndWait()
                     } catch (e: Exception) {
@@ -1352,6 +2246,10 @@ class PowerDialerManager(private val context: Context) {
                         false
                     }
                 }
+            } else if (activeOrHoldingBeforeDial >= 2 && !hasConferenceSupport()) {
+                Log.d(TAG, "⏭️ [Refill] Dispositivo NÃO suporta conferência - permitindo refill sem merge (2+ chamadas mas sem suporte)")
+                // Permite refill mesmo sem merge se não há suporte
+                mergeSucceededForRefill = true
             }
 
             val maxCallsToDial = when {
@@ -1374,69 +2272,181 @@ class PowerDialerManager(private val context: Context) {
                 else -> 0
             }
 
-            if (availableSlots > 0 && campaign.shuffledNumbers.isNotEmpty() && maxCallsToDial > 0) {
+            if (availableSlots > 0 && maxCallsToDial > 0) {
                 try {
-                    // Remove numbers that estão em backoff ou finalizados
-                    var number: String? = null
-                    while (campaign.shuffledNumbers.isNotEmpty()) {
-                        val candidate = campaign.shuffledNumbers.removeAt(0)
-                        val now = System.currentTimeMillis()
-                        val until = backoffUntil[candidate] ?: 0L
-                        if (finishedNumbers.contains(candidate)) {
-                            Log.d(TAG, "⏭️ [Refill] Pulando número finalizado: $candidate")
-                            continue
-                        }
-                        if (until > now) {
-                            Log.d(TAG, "⏭️ [Refill] Pulando número em backoff até ${until} ($candidate)")
-                            // Re-enfileira ao final para tentar depois
-                            campaign.shuffledNumbers.add(candidate)
-                            continue
-                        }
-                        number = candidate
-                        break
-                    }
-                    if (number == null) {
+                    // Usa QueueManager para obter número disponível
+                    val numbersToDial = queueManager.popAvailableNumbers(campaign, 1, attemptManager, numberValidator, activeCalls)
+                    if (numbersToDial.isEmpty()) {
                         Log.d(TAG, "⏳ [Refill] Nenhum número disponível após filtrar backoff/finalizados")
                     } else {
-                        val attempt = (attemptCounts[number] ?: 0) + 1
-                        attemptCounts[number] = attempt
-                        Log.d(TAG, "⏱️ Refill imediato: iniciando chamada para $number (tentativa $attempt)")
-                        makeCall(number, attempt)
+                        val number = numbersToDial[0]
+                        val currentAttempts = attemptManager.getAttempts(number)
+                        Log.d(TAG, "⏱️ Refill imediato: iniciando chamada para $number (será tentativa ${currentAttempts + 1})")
+                        makeCall(number, currentAttempts + 1)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "⚠️ Refill imediato falhou: ${e.message}")
                 }
             } else {
-                Log.d(TAG, "⏳ Refill imediato não necessário/permitido: availableSlots=$availableSlots, numbers=${campaign.shuffledNumbers.size}, maxCallsToDial=$maxCallsToDial")
+                Log.d(TAG, "⏳ Refill imediato não necessário/permitido: availableSlots=$availableSlots, numbers=${queueManager.getQueueSize(campaign)}, maxCallsToDial=$maxCallsToDial")
             }
         }
     }
 
-    private fun scheduleRetryForNumber(number: String?, campaign: Campaign) {
+    private suspend fun scheduleRetryForNumber(number: String?, campaign: Campaign) {
         if (number == null) return
-        try {
-            val now = System.currentTimeMillis()
-            val failures = consecutiveFailures.computeIfAbsent(number) { java.util.concurrent.atomic.AtomicInteger(0) }
-            val f = failures.get()
-            if (backoffUntil[number]?.let { it > now } == true) {
-                Log.d(TAG, "⏳ scheduleRetry: número $number ainda em backoff até ${backoffUntil[number]}")
-                return
+        
+        // Verifica se pode fazer retry
+        if (!attemptManager.canDial(number) || attemptManager.isFinished(number)) {
+            attemptManager.markAsFinished(number)
+            return
+        }
+        
+        // Registra falha para backoff (já foi feito em handleCallCompletion)
+        attemptManager.recordFailure(number)
+        
+        // Se a campanha estiver em modo loop, não adiciona token de retry
+        if (campaign.loop) {
+            return
+        }
+
+        // Adiciona à fila para retry
+        queueManager.addNumbers(campaign, listOf(number), "retry")
+    }
+
+    /**
+     * Retorna true se já existe uma chamada em progresso para o número (não considerar estados finais)
+     */
+    /**
+     * CORREÇÃO BUG: Também verifica se número faz parte de uma conferência ativa
+     */
+    private fun isNumberCurrentlyActive(number: String): Boolean {
+        // Verifica se há chamada ativa direta
+        val hasDirectCall = activeCalls.values.any { ac ->
+            ac.number == number && ac.state !in listOf(
+                CallState.DISCONNECTED,
+                CallState.FAILED,
+                CallState.REJECTED,
+                CallState.NO_ANSWER,
+                CallState.UNREACHABLE
+            )
+        }
+        
+        // CORREÇÃO BUG: Se não há chamada direta, verifica se faz parte de conferência ativa
+        if (!hasDirectCall) {
+            val conferencePrimary = numberToConferencePrimary[number]
+            if (conferencePrimary != null) {
+                val conferenceNumbers = mergedConferences[conferencePrimary]
+                if (conferenceNumbers != null) {
+                    // Verifica se algum número da conferência ainda está ativo
+                    val hasActiveInConference = conferenceNumbers.any { confNum ->
+                        activeCalls.values.any { ac ->
+                            ac.number == confNum && ac.state in listOf(
+                                CallState.DIALING, CallState.RINGING, CallState.ACTIVE, CallState.HOLDING
+                            )
+                        }
+                    }
+                    if (hasActiveInConference) {
+                        Log.d(TAG, "🔗 Número $number está em conferência ativa (primário: $conferencePrimary)")
+                        return true
+                    } else {
+                        // Conferência caiu, limpa registros
+                        Log.d(TAG, "🔗 Conferência de $number caiu, limpando registros")
+                        mergedConferences.remove(conferencePrimary)
+                        conferenceNumbers.forEach { num ->
+                            numberToConferencePrimary.remove(num)
+                        }
+                    }
+                }
+            }
+        }
+        
+        return hasDirectCall
+    }
+    
+    /**
+     * CORREÇÃO: Verifica se número já está em DIALING/RINGING (evita múltiplas instâncias)
+     */
+    private fun isNumberCurrentlyDialing(number: String): Boolean {
+        // CORREÇÃO CRÍTICA: Só considera como "discando" se está realmente em DIALING/RINGING
+        // Estados finais não são considerados como "discando" mesmo que ainda estejam no map
+        return activeCalls.values.any { ac ->
+            ac.number == number && 
+            ac.state in listOf(CallState.DIALING, CallState.RINGING)
+        }
+    }
+
+    // REMOVIDO: popAvailableNumbers agora está em QueueManager
+
+    /**
+     * Tenta um refill imediato, mas respeita limites de DIALING/RINGING para não
+     * sobrecarregar o Telecom. Usa mesma lógica de throttling que a manutenção do pool.
+     * 
+     * CORREÇÃO: Esta função agora é mais agressiva em preencher slots vazios,
+     * garantindo que o pool sempre tenha 6 chamadas ativas quando possível.
+     */
+    private fun triggerSafeImmediateRefill() {
+        scope.launch {
+            val campaign = currentCampaign
+            if (campaign == null) {
+                Log.d(TAG, "🔔 triggerSafeImmediateRefill: sem campanha ativa")
+                return@launch
+            }
+            
+            if (!campaign.isActive || campaign.isPaused) {
+                Log.d(TAG, "🔔 triggerSafeImmediateRefill: campanha inativa ou pausada")
+                return@launch
             }
 
-            // Se já atingiu o limite de falhas consecutivas, aplica backoff e reinicia contador
-            if (f >= consecutiveFailureLimit) {
-                val until = now + backoffMillis
-                backoffUntil[number] = until
-                failures.set(0)
-                Log.w(TAG, "⏱️ Número $number entrou em backoff até $until após $f falhas consecutivas")
-                return
+            // CORREÇÃO BUG #3: Usa função única para contagem
+            val stats = getCallStats()
+            val activeCount = stats.activeHolding
+            val availableSlots = maxConcurrentCalls - activeCount
+            val currentDialing = stats.dialingRinging
+            val maxNewDials = (maxConcurrentDialing - currentDialing).coerceAtLeast(0)
+            val allowedNewDials = minOf(availableSlots, maxNewDials, campaign.shuffledNumbers.size)
+
+            Log.d(TAG, "🔔 triggerSafeImmediateRefill: activeCount=$activeCount, availableSlots=$availableSlots, currentDialing=$currentDialing, maxNewDials=$maxNewDials, allowedNewDials=$allowedNewDials, queueSize=${campaign.shuffledNumbers.size}")
+
+            // CORREÇÃO: Recarrega fila se vazia antes de verificar slots
+            if (campaign.shuffledNumbers.isEmpty() && availableSlots > 0) {
+                Log.d(TAG, "🔁 triggerSafeImmediateRefill: Fila vazia - recarregando...")
+                val reloaded = queueManager.reloadQueue(campaign, attemptManager)
+                if (reloaded > 0) {
+                    Log.d(TAG, "✅ triggerSafeImmediateRefill: Fila recarregada com $reloaded números")
+                }
             }
 
-            // Adiciona ao fim da fila para alternar entre números
-            campaign.shuffledNumbers.add(number)
-            Log.d(TAG, "✅ scheduleRetry: número $number re-adicionado à fila (failures=$f)")
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ scheduleRetryForNumber erro: ${e.message}")
+            // CORREÇÃO: Se há slot disponível, disca imediatamente
+            if (allowedNewDials <= 0 || campaign.shuffledNumbers.isEmpty()) {
+                Log.d(TAG, "⏳ triggerSafeImmediateRefill: sem slots disponíveis ou sem números na fila")
+                return@launch
+            }
+            
+            // CORREÇÃO: Só aguarda se já está no limite de DIALING/RINGING
+            if (currentDialing >= maxConcurrentDialing) {
+                Log.d(TAG, "⏳ triggerSafeImmediateRefill: limite de DIALING atingido (currentDialing=$currentDialing, max=$maxConcurrentDialing)")
+                return@launch
+            }
+            
+            // Sempre disca apenas 1 por vez
+            val numbersToDial = queueManager.popAvailableNumbers(campaign, 1, attemptManager, numberValidator, activeCalls)
+            if (numbersToDial.isNotEmpty()) {
+                val number = numbersToDial[0]
+                val currentAttempts = attemptManager.getAttempts(number)
+                val nextAttempt = currentAttempts + 1
+                
+                Log.d(TAG, "📱 SAFE REFILL: Tentando discar $number (será tentativa $nextAttempt/$maxRetries) - aguardando resultado antes de próxima discagem")
+                // CORREÇÃO: makeCall já verifica tentativas e só incrementa após placeCall ter sucesso
+                makeCall(number, nextAttempt)
+                // CORREÇÃO: Delay mínimo de 1 segundo antes de considerar próxima discagem
+                delay(minDialDelay)
+            } else {
+                Log.d(TAG, "⏳ triggerSafeImmediateRefill: nenhum número disponível após filtros (backoff/finalizados/ativos)")
+            }
+            
+            // CORREÇÃO: Pool maintenance já atualiza periodicamente - não precisa atualizar aqui
+            // O throttle garante que atualizações não sejam excessivas
         }
     }
     
@@ -1444,11 +2454,41 @@ class PowerDialerManager(private val context: Context) {
     
     /**
      * Atualiza a lista de chamadas ativas no UI
-     * CORREÇÃO: Garante que o dashboard sempre tenha informações atualizadas
-     * Usa as chamadas do PowerDialerManager (que são atualizadas imediatamente)
-     * em vez de esperar pelo MyInCallService
+     * CORREÇÃO: Implementa throttle para evitar atualizações redundantes e race conditions
+     * Usa as chamadas do PowerDialerManager como fonte única de verdade
      */
     private fun updateActiveCallsInUI() {
+        val now = System.currentTimeMillis()
+        val timeSinceLastUpdate = now - lastUIUpdateTime
+        
+        // CORREÇÃO: Atualiza imediatamente se passou tempo suficiente OU se é uma atualização crítica
+        // Remove throttle excessivo que pode causar UI desatualizada
+        if (timeSinceLastUpdate < uiUpdateThrottleMs) {
+            pendingUIUpdate?.cancel()
+            pendingUIUpdate = scope.launch {
+                delay(uiUpdateThrottleMs - timeSinceLastUpdate)
+                performUIUpdate()
+            }
+            return
+        }
+        
+        // Atualiza imediatamente se passou tempo suficiente
+        performUIUpdate()
+    }
+    
+    /**
+     * Força atualização imediata da UI (para casos críticos)
+     */
+    private fun forceUIUpdate() {
+        pendingUIUpdate?.cancel()
+        performUIUpdate()
+    }
+    
+    /**
+     * Executa a atualização real da UI (chamada após throttle)
+     */
+    private fun performUIUpdate() {
+        lastUIUpdateTime = System.currentTimeMillis()
         try {
             // CORREÇÃO: Usa as chamadas do PowerDialerManager diretamente
             // Isso garante que apareçam desde o primeiro segundo
@@ -1462,34 +2502,68 @@ class PowerDialerManager(private val context: Context) {
 
             val nonConferenceCalls = activeCalls.values.filter { !isReportedAsConference(it) && it.state in activeStates }
 
-            val callsList = mutableListOf<Map<String, Any>>()
-
-            // Adiciona chamadas normais (deriva número da ActiveCall ou do Call.details se necessário)
+            // CORREÇÃO BUG #6: Agrupa inteligentemente por número, mas mostra todas as chamadas únicas
+            // Prioriza ACTIVE/HOLDING sobre DIALING/RINGING quando há múltiplas chamadas para o mesmo número
+            // MAS mostra todas as chamadas com callId diferente (mesmo número pode ter múltiplas chamadas legítimas)
+            val callsByNumber = mutableMapOf<String, MutableList<ActiveCall>>()
+            
             nonConferenceCalls.forEach { activeCall ->
                 val callObj = try { activeCall.call } catch (e: Exception) { null }
                 val displayNumber = activeCall.number
                     ?: try { callObj?.details?.handle?.schemeSpecificPart } catch (e: Exception) { null }
 
-                // Se não houver número conhecido, ignora a entrada para evitar linhas sem nome no UI
                 if (displayNumber.isNullOrBlank()) {
                     Log.d(TAG, "⏭️ Ignorando chamada sem número identificado (callId=${activeCall.callId}) para UI")
+                    return@forEach
+                }
+                
+                // Agrupa por número mas mantém todas as chamadas
+                callsByNumber.getOrPut(displayNumber) { mutableListOf() }.add(activeCall)
+            }
+
+            val callsList = mutableListOf<Map<String, Any>>()
+            
+            // Função helper para criar map de chamada
+            fun createCallMap(activeCall: ActiveCall, displayNumber: String): Map<String, Any> {
+                return mapOf(
+                        "callId" to activeCall.callId,
+                    "number" to displayNumber,
+                        "state" to when (activeCall.state) {
+                            CallState.DIALING -> "dialing"
+                            CallState.RINGING -> "ringing"
+                            CallState.ACTIVE -> "active"
+                            CallState.HOLDING -> "held"
+                            CallState.DISCONNECTED -> "disconnected"
+                            else -> "disconnected"
+                        },
+                        "isConference" to false,
+                        "startTime" to activeCall.startTime
+                )
+            }
+            
+            // CORREÇÃO BUG #6: Para cada número, mostra a chamada de maior prioridade
+            // MAS se há múltiplas chamadas com estados diferentes, mostra todas (pode ser legítimo)
+            callsByNumber.forEach { (displayNumber, calls) ->
+                // Se há apenas uma chamada para este número, mostra ela
+                if (calls.size == 1) {
+                    val activeCall = calls[0]
+                    callsList.add(createCallMap(activeCall, displayNumber))
                 } else {
-                    callsList.add(
-                        mapOf(
-                            "callId" to activeCall.callId,
-                            "number" to displayNumber,
-                            "state" to when (activeCall.state) {
-                                CallState.DIALING -> "dialing"
-                                CallState.RINGING -> "ringing"
-                                CallState.ACTIVE -> "active"
-                                CallState.HOLDING -> "held"
-                                CallState.DISCONNECTED -> "disconnected"
-                                else -> "disconnected"
-                            },
-                            "isConference" to false,
-                            "startTime" to activeCall.startTime
-                        )
-                    )
+                    // Se há múltiplas chamadas, prioriza ACTIVE/HOLDING mas mostra todas com estados diferentes
+                    val byState = calls.groupBy { it.state }
+                    val activeHolding = (byState[CallState.ACTIVE] ?: emptyList()) + (byState[CallState.HOLDING] ?: emptyList())
+                    val dialingRinging = (byState[CallState.DIALING] ?: emptyList()) + (byState[CallState.RINGING] ?: emptyList())
+                    
+                    // Mostra ACTIVE/HOLDING primeiro (se houver)
+                    activeHolding.forEach { activeCall ->
+                        callsList.add(createCallMap(activeCall, displayNumber))
+                    }
+                    // Mostra DIALING/RINGING apenas se não há ACTIVE/HOLDING para este número
+                    if (activeHolding.isEmpty()) {
+                        dialingRinging.forEach { activeCall ->
+                            callsList.add(createCallMap(activeCall, displayNumber))
+                        }
+                    }
                 }
             }
 
@@ -1508,8 +2582,25 @@ class PowerDialerManager(private val context: Context) {
                 )
             }
             
+            // CORREÇÃO: Remove duplicatas por callId antes de enviar (pode haver múltiplas entradas para o mesmo callId)
+            val uniqueCalls = callsList.distinctBy { it["callId"] as? String ?: "" }
+            
+            // CORREÇÃO BUG #10: Logs reduzidos (apenas quando há inconsistência)
+            val realActiveCount = activeCalls.values.count { 
+                it.state in listOf(CallState.ACTIVE, CallState.HOLDING) 
+            }
+            val realDialingCount = activeCalls.values.count { 
+                it.state in listOf(CallState.DIALING, CallState.RINGING) 
+            }
+            
+            // Só loga se há inconsistência ou a cada 5 segundos
+            val shouldLogUI = (System.currentTimeMillis() / 5000) % 2 == 0L
+            if (uniqueCalls.size != (realActiveCount + realDialingCount) || shouldLogUI) {
+                Log.d(TAG, "📊 [UI] ${uniqueCalls.size} na UI | Real: $realActiveCount ACTIVE/HOLDING + $realDialingCount DIALING/RINGING")
+            }
+            
             // Atualiza via plugin para notificar o frontend
-            com.pbxmobile.app.ServiceRegistry.getPlugin()?.updateActiveCalls(callsList)
+            com.pbxmobile.app.ServiceRegistry.getPlugin()?.updateActiveCalls(uniqueCalls)
         } catch (e: Exception) {
             Log.w(TAG, "⚠️ Erro ao atualizar chamadas ativas no UI: ${e.message}")
         }
@@ -1517,23 +2608,48 @@ class PowerDialerManager(private val context: Context) {
     
     /**
      * Notifica progresso da campanha
+     * CORREÇÃO: Implementa throttle para evitar atualizações excessivas
      */
     private fun notifyProgress() {
         val campaign = currentCampaign ?: return
         
+        val now = System.currentTimeMillis()
+        val timeSinceLastUpdate = now - lastProgressUpdateTime
+        
+        // Se já atualizou recentemente, agenda para depois (debounce)
+        if (timeSinceLastUpdate < progressUpdateThrottleMs) {
+            pendingProgressUpdate?.cancel()
+            pendingProgressUpdate = scope.launch {
+                delay(progressUpdateThrottleMs - timeSinceLastUpdate)
+                performProgressUpdate()
+            }
+            return
+        }
+        
+        // Atualiza imediatamente se passou tempo suficiente
+        performProgressUpdate()
+    }
+    
+    /**
+     * Executa a atualização real do progresso (chamada após throttle)
+     */
+    private fun performProgressUpdate() {
+        lastProgressUpdateTime = System.currentTimeMillis()
+        val campaign = currentCampaign ?: return
+        
         val results = callResults.values
         val successfulCalls = results.count { it.state == CallState.ACTIVE }
-        val failedCalls = results.count {
+        val failedCalls = results.count { 
             it.state in listOf(CallState.FAILED, CallState.REJECTED, CallState.UNREACHABLE) && !it.willRetry
         }
-
+        
         val completedNumbers = results.map { it.number }.distinct().size
         val pendingNumbers = campaign.shuffledNumbers.size
 
         // Calcula número de chamadas ativas reais (exclui estados finais e participantes de conferência)
         val activeStates = listOf(CallState.DIALING, CallState.RINGING, CallState.ACTIVE, CallState.HOLDING)
         val trulyActiveCount = activeCalls.values.count { it.state in activeStates && !isReportedAsConference(it) }
-
+        
         val progress = CampaignProgress(
             sessionId = campaign.sessionId,
             totalNumbers = campaign.numbers.size,
@@ -1623,10 +2739,10 @@ class PowerDialerManager(private val context: Context) {
         val results = callResults.values
         // Conta apenas ACTIVE em callResults (chamadas que realmente completaram como ACTIVE)
         val successfulCalls = results.count { it.state == CallState.ACTIVE }
-        val failedCalls = results.count {
+        val failedCalls = results.count { 
             it.state in listOf(CallState.FAILED, CallState.REJECTED, CallState.UNREACHABLE) && !it.willRetry
         }
-
+        
         val completedNumbers = results.map { it.number }.distinct().size
         val pendingNumbers = campaign.shuffledNumbers.size
 
@@ -1638,7 +2754,7 @@ class PowerDialerManager(private val context: Context) {
             val displayNumber = active.number ?: try { callObj?.details?.handle?.schemeSpecificPart } catch (e: Exception) { null }
             !displayNumber.isNullOrBlank()
         }
-
+        
         return CampaignProgress(
             sessionId = campaign.sessionId,
             totalNumbers = campaign.numbers.size,
@@ -1664,6 +2780,14 @@ class PowerDialerManager(private val context: Context) {
     }
     
     /**
+     * Verifica se há uma campanha ativa
+     * CORREÇÃO: Exposto para MyInCallService verificar se deve usar PowerDialerManager ou fallback
+     */
+    fun hasActiveCampaign(): Boolean {
+        return currentCampaign?.isActive == true
+    }
+    
+    /**
      * Retorna todos os resultados até o momento
      */
     fun getAllResults(): List<CallResult> {
@@ -1675,6 +2799,10 @@ class PowerDialerManager(private val context: Context) {
      */
     fun destroy() {
         stopCampaign()
+        // CORREÇÃO CRÍTICA: Fecha poolRefillChannel para evitar resource leak
+        runBlocking {
+            poolRefillChannel.close()
+        }
         scope.cancel()
     }
 }

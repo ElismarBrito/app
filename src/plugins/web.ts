@@ -93,6 +93,37 @@ export class PbxMobileWeb extends WebPlugin implements PbxMobilePlugin {
     console.log('Web: stopAutomatedCalling', options.sessionId);
   }
 
+  // --- Power Dialer (Motor de Campanha) ---
+  async startCampaign(options: {
+    numbers: string[];
+    deviceId: string;
+    listId: string;
+    listName: string;
+    simId?: string;
+  }): Promise<{ sessionId: string }> {
+    console.log('Web: startCampaign', options);
+    return { sessionId: `web-campaign-${Date.now()}` };
+  }
+
+  async pauseCampaign(): Promise<void> {
+    console.log('Web: pauseCampaign - not available on web');
+  }
+
+  async resumeCampaign(): Promise<void> {
+    console.log('Web: resumeCampaign - not available on web');
+  }
+
+  async stopCampaign(): Promise<void> {
+    console.log('Web: stopCampaign - not available on web');
+  }
+
+  async updateCampaignNumbers(options: {
+    numbers: string[];
+  }): Promise<{ success: boolean; numbersAdded: number }> {
+    console.log('Web: updateCampaignNumbers', options);
+    return { success: true, numbersAdded: options.numbers.length };
+  }
+
   async addListener(
     eventName: 'callStateChanged',
     listenerFunc: (event: CallStateEvent) => void,

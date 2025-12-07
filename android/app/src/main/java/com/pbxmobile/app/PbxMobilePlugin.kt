@@ -469,6 +469,30 @@ class PbxMobilePlugin : Plugin() {
         powerDialerManager.stopCampaign()
         call.resolve()
     }
+
+    @PluginMethod
+    fun updateCampaignNumbers(call: PluginCall) {
+        val numbersArray = call.getArray("numbers")
+        
+        if (numbersArray == null || numbersArray.length() == 0) {
+            call.reject("numbers array is required and cannot be empty")
+            return
+        }
+
+        try {
+            val numbers = List(numbersArray.length()) { i -> numbersArray.getString(i) }
+            Log.d(TAG, "Updating campaign with ${numbers.size} new numbers")
+            
+            powerDialerManager.updateCampaignNumbers(numbers)
+            call.resolve(JSObject().apply {
+                put("success", true)
+                put("numbersAdded", numbers.size)
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating campaign numbers", e)
+            call.reject("Failed to update campaign numbers: ${e.message}")
+        }
+    }
     
     // Event notification methods for services
     fun notifyCallStateChanged(callId: String, state: String, number: String) {
