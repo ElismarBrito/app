@@ -559,20 +559,27 @@ class PowerDialerManager(private val context: Context) {
                 val allowedNewDials = minOf(availableSlots, maxNewDials, campaign.shuffledNumbers.size)
 
                 // === TENTATIVA DE MERGE EM PARALELO (quando necessário) ===
-                // CORREÇÃO CRÍTICA: Tenta merge em paralelo com refill, não bloqueia novas discagens
-                // O merge deve acontecer quando há 2+ chamadas ativas, mas não deve impedir discar a 6ª chamada
-                if (activeCount >= 2 && autoConferenceEnabled && hasConferenceSupport()) {
-                    Log.d(TAG, "🔗 Pool maintenance: Há $activeCount chamadas ativas - tentando merge em paralelo (não bloqueia refill)")
-                    // Executa merge em background sem bloquear o refill
-                                        scope.launch {
-                        ensureConferenceCapacityIfNeeded("pool_maintenance_parallel")
-                    }
-                }
-                
+                // CORREÇÃO CRÍTICA: A lógica de merge agora é síncrona e foi movida para dentro do bloco de refill
+                // para garantir que o merge aconteça ANTES de uma nova discagem.
+
                 // === REFILL PRIORITÁRIO: disca novas chamadas se há slots disponíveis ===
                 // CORREÇÃO CRÍTICA: Continua discando até ter 6 chamadas ativas (ACTIVE + HOLDING)
                 // Disca sequencialmente (uma por vez) aguardando estado antes de próxima discagem
                 if (allowedNewDials > 0 && currentDialing < maxConcurrentDialing && activeCount < maxConcurrentCalls) {
+                    // CORREÇÃO CRÍTICA: Se já temos 2 ou mais chamadas ativas, DEVEMOS fazer o merge
+                    // ANTES de tentar discar a próxima para evitar que o Android rejeite a chamada.
+                    if (activeCount >= 2) {
+                        Log.d(TAG, "🔧 Manutenção do Pool: $activeCount chamadas ativas. Tentando merge síncrono antes de discar.")
+                        val mergeSuccess = tryMergeCallsAndWait()
+                        if (!mergeSuccess) {
+                            Log.w(TAG, "⚠️ Manutenção do Pool: Merge falhou. Aguardando próximo ciclo para reavaliar.")
+                            // Pula para a próxima iteração do loop para reavaliar o estado do pool.
+                            // O select no início do loop vai garantir um delay mínimo.
+                            continue
+                        }
+                        Log.d(TAG, "✅ Manutenção do Pool: Merge bem sucedido ou não necessário. Prosseguindo com a discagem.")
+                    }
+
                     // CORREÇÃO: Disca se há slot disponível e não está no limite de DIALING/RINGING
                     val numbersToDial = queueManager.popAvailableNumbers(campaign, 1, attemptManager, numberValidator, activeCalls, lastDialedNumber)
                     if (numbersToDial.isNotEmpty()) {
@@ -942,17 +949,6 @@ class PowerDialerManager(private val context: Context) {
             if (activeCount >= 2) {
                 Log.d(TAG, "⏭️ makeCall: número $number já tem $activeCount chamada(s) ativa(s) (máximo: 2) - pulando")
                 return@withLock null
-            }
-            
-            // CORREÇÃO: Permite números repetidos, mas não em sequência imediata
-            // Se acabou de discar este número, aguarda um pouco antes de permitir novamente
-            if (number == lastDialedNumber) {
-                // Aguarda 2 segundos antes de permitir re-discar o mesmo número
-                val timeSinceLastDial = System.currentTimeMillis() - (lastDialedNumberTime ?: 0L)
-                if (timeSinceLastDial < 2000) {
-                    Log.d(TAG, "⏭️ makeCall: número $number é igual ao último discado há ${timeSinceLastDial}ms - aguardando mais ${2000 - timeSinceLastDial}ms")
-                    return@withLock null
-                }
             }
             
             // NÃO incrementa aqui - só incrementa após placeCall() ter sucesso
@@ -1352,7 +1348,7 @@ class PowerDialerManager(private val context: Context) {
                     primary.conference(c)
                     
                     // CORREÇÃO: Aguarda mais tempo para o merge se consolidar
-                    delay(1000) // Aumentado para dar tempo do sistema processar o merge
+                    delay(2500) // Aumentado para dar tempo do sistema processar o merge
                     
                     // Verifica se o merge foi bem-sucedido de várias formas:
                     // 1. Se alguma das chamadas agora tem PROPERTY_CONFERENCE (indicador mais confiável)
@@ -1430,12 +1426,6 @@ class PowerDialerManager(private val context: Context) {
                         lastMergeFailureAtMs = System.currentTimeMillis()
                         Log.w(TAG, "⚠️ Merge falhou para $a + $b - falhas consecutivas: $consecutiveMergeFailures/$maxConsecutiveMergeFailures")
                         
-                        // CORREÇÃO CRÍTICA: Se falhou 3 vezes, desabilita merge permanentemente
-                        if (consecutiveMergeFailures >= maxConsecutiveMergeFailures) {
-                            autoConferenceEnabled = false
-                            Log.w(TAG, "🛑 Merge DESABILITADO - dispositivo não suporta conferência")
-                            return
-                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ Erro ao tentar fazer a conferência entre $a e $b: ${e.message}", e)
