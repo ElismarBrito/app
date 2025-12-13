@@ -5,9 +5,10 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  Phone, 
-  PhoneOff, 
+import {
+  Phone,
+  PhoneOff,
+  PhoneIncoming,
   Delete,
   Users,
   Clock,
@@ -29,6 +30,7 @@ interface CorporateDialerProps {
   activeCalls: CallInfo[];
   onMakeCall: (number: string) => void;
   onEndCall: (callId: string) => void;
+  onAnswerCall: (callId: string) => void;
   onMergeActiveCalls: () => void;
   deviceModel: string;
   campaignProgress: CampaignProgress | null;
@@ -44,6 +46,7 @@ export const CorporateDialer = ({
   activeCalls,
   onMakeCall,
   onEndCall,
+  onAnswerCall,
   onMergeActiveCalls,
   deviceModel,
   campaignProgress,
@@ -113,7 +116,7 @@ export const CorporateDialer = ({
   return (
     <div className="min-h-screen bg-gradient-to-b from-primary to-primary-foreground p-4">
       <div className="max-w-md mx-auto space-y-4">
-        
+
         {/* Header simplificado */}
         <Card className="bg-white/10 backdrop-blur-sm border-white/20">
           <CardContent className="p-4">
@@ -172,34 +175,45 @@ export const CorporateDialer = ({
                     {activeCalls
                       .sort((a, b) => (b.startTime || 0) - (a.startTime || 0))
                       .map(call => (
-                      <div key={call.callId} className="flex items-center justify-between p-2 bg-muted/50 rounded border">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{call.number}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <div className={`w-2 h-2 rounded-full ${
-                              call.state === 'active' ? 'bg-green-500 animate-pulse' : 
-                              call.state === 'dialing' ? 'bg-yellow-500 animate-pulse' : 
-                              call.state === 'ringing' ? 'bg-blue-500 animate-pulse' : 
-                              'bg-gray-400'
-                            }`} />
-                            <p className="text-xs text-muted-foreground capitalize">
-                              {call.state === 'dialing' ? 'Discando...' :
-                               call.state === 'active' ? 'Conectada' :
-                               call.state === 'ringing' ? 'Tocando' :
-                               call.state === 'held' ? 'Em espera' : call.state}
-                            </p>
+                        <div key={call.callId} className="flex items-center justify-between p-2 bg-muted/50 rounded border">
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{call.number}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <div className={`w-2 h-2 rounded-full ${call.state === 'active' ? 'bg-green-500 animate-pulse' :
+                                call.state === 'dialing' ? 'bg-yellow-500 animate-pulse' :
+                                  call.state === 'ringing' ? 'bg-blue-500 animate-pulse' :
+                                    'bg-gray-400'
+                                }`} />
+                              <p className="text-xs text-muted-foreground capitalize">
+                                {call.state === 'dialing' ? 'Discando...' :
+                                  call.state === 'active' ? 'Conectada' :
+                                    call.state === 'ringing' ? 'Tocando' :
+                                      call.state === 'held' ? 'Em espera' : call.state}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex gap-1">
+                            {call.state === 'ringing' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => onAnswerCall(call.callId)}
+                                className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-100"
+                              >
+                                <PhoneIncoming className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => onEndCall(call.callId)}
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                            >
+                              <PhoneOff className="h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => onEndCall(call.callId)}
-                          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                        >
-                          <PhoneOff className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 ) : campaignProgress.dialingNumbers && campaignProgress.dialingNumbers.length > 0 ? (
                   <div className="flex flex-wrap gap-1">
@@ -246,33 +260,43 @@ export const CorporateDialer = ({
               {activeCalls
                 .sort((a, b) => (b.startTime || 0) - (a.startTime || 0))
                 .map(call => (
-                <div key={call.callId} className="flex items-center justify-between bg-white/5 rounded p-2">
-                  <div className="text-white text-sm">
-                    <p className="font-medium">{call.number}</p>
-                    <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${
-                        call.state === 'active' ? 'bg-green-400' : 
-                        call.state === 'dialing' ? 'bg-yellow-400' : 
-                        call.state === 'ringing' ? 'bg-blue-400' : 'bg-gray-400'
-                      }`} />
-                      <p className="text-xs text-white/70 capitalize">
-                        {call.state === 'dialing' ? 'Discando...' :
-                         call.state === 'active' ? 'Conectada' :
-                         call.state === 'ringing' ? 'Tocando' :
-                         call.state === 'held' ? 'Em espera' : call.state}
-                      </p>
+                  <div key={call.callId} className="flex items-center justify-between bg-white/5 rounded p-2">
+                    <div className="text-white text-sm">
+                      <p className="font-medium">{call.number}</p>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${call.state === 'active' ? 'bg-green-400' :
+                          call.state === 'dialing' ? 'bg-yellow-400' :
+                            call.state === 'ringing' ? 'bg-blue-400' : 'bg-gray-400'
+                          }`} />
+                        <p className="text-xs text-white/70 capitalize">
+                          {call.state === 'dialing' ? 'Discando...' :
+                            call.state === 'active' ? 'Conectada' :
+                              call.state === 'ringing' ? 'Tocando' :
+                                call.state === 'held' ? 'Em espera' : call.state}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      {call.state === 'ringing' && (
+                        <Button
+                          size="sm"
+                          onClick={() => onAnswerCall(call.callId)}
+                          className="bg-green-500/20 border-green-500/30 hover:bg-green-500/30"
+                        >
+                          <PhoneIncoming className="w-3 h-3" />
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => onEndCall(call.callId)}
+                        className="bg-red-500/20 border-red-500/30 hover:bg-red-500/30"
+                      >
+                        <PhoneOff className="w-3 h-3" />
+                      </Button>
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => onEndCall(call.callId)}
-                    className="bg-red-500/20 border-red-500/30 hover:bg-red-500/30"
-                  >
-                    <PhoneOff className="w-3 h-3" />
-                  </Button>
-                </div>
-              ))}
+                ))}
               {activeCalls.length > 1 && (
                 <Button
                   onClick={onMergeActiveCalls}
@@ -302,7 +326,7 @@ export const CorporateDialer = ({
           <CardContent className="p-4">
             <div className="text-center space-y-4">
               <div className="text-muted-foreground text-sm">Enter number</div>
-              
+
               <div className="relative">
                 <Input
                   value={phoneNumber}

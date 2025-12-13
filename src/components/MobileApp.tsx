@@ -57,44 +57,44 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   const [campaignProgress, setCampaignProgress] = useState<CampaignProgress | null>(null);
   const [campaignSummary, setCampaignSummary] = useState<CampaignSummary | null>(null);
   const [campaignName, setCampaignName] = useState<string>('');
-  
+
   // Estado para alternar entre views do discador
   const [useModernView, setUseModernView] = useState<boolean>(false);
 
   // Map to track native call IDs to database call IDs
   const callMapRef = useRef<Map<string, string>>(new Map());
   const startTimesRef = useRef<Map<string, number>>(new Map());
-  
+
   // Temporary map to track campaign number -> dbCallId until native callId is available
   const campaignNumberToDbCallIdRef = useRef<Map<string, string>>(new Map());
-  
+
   // Ref to track if dialerCallStateChanged listener is ready
   const dialerListenerReadyRef = useRef<boolean>(false);
-  
+
   // Ref para rastrear o último valor de active_calls_count para evitar atualizações desnecessárias
   const lastActiveCallsCountRef = useRef<number | null>(null);
-  
+
   // CORREÇÃO: Debounce para evitar race conditions nas atualizações do banco
   const dbUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingDbUpdateRef = useRef<number | null>(null);
-  
+
   // Enable automatic status sync with database
   useCallStatusSync(callMapRef.current, startTimesRef.current);
-  
+
   // Handle new call assignments from dashboard
   // CORREÇÃO: Função estável - o hook useCallAssignments já usa useRef internamente
   const handleNewCallAssignment = (number: string, callId: string) => {
     console.log(`New call assigned: ${number} (DB ID: ${callId})`);
-    
+
     toast({
       title: "Nova chamada atribuída",
       description: `Chamada para ${number} adicionada à fila`,
     });
-    
+
     // Add to queue with database call ID
     addToQueue({ number, callId });
   };
-  
+
   // Listen for call assignments from dashboard
   useCallAssignments({
     deviceId,
@@ -136,11 +136,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     if (!scannedValue) {
       return null;
     }
-    
+
     try {
       const trimmed = scannedValue.trim();
       console.log('🔍 extractSessionCode - Valor recebido:', trimmed);
-      
+
       // Se for uma URL, tenta extrair o parâmetro 'session'
       if (trimmed.includes('http://') || trimmed.includes('https://') || trimmed.includes('?')) {
         try {
@@ -149,10 +149,10 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
             urlString = `http://${trimmed}`;
           }
-          
+
           const url = new URL(urlString);
           const sessionParam = url.searchParams.get('session');
-          
+
           if (sessionParam) {
             console.log('🔍 extractSessionCode - Código extraído da URL (searchParams):', sessionParam);
             return sessionParam.trim();
@@ -160,7 +160,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         } catch (urlError) {
           console.warn('⚠️ Erro ao parsear URL, tentando regex:', urlError);
         }
-        
+
         // Fallback: usa regex para extrair session=xxx
         const pathMatch = trimmed.match(/[?&]session=([^&]+)/);
         if (pathMatch && pathMatch[1]) {
@@ -169,7 +169,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           return code;
         }
       }
-      
+
       // CORREÇÃO: Aceitar código numérico de 13 dígitos (timestamp Date.now())
       // Timestamp atual tem 13 dígitos (ex: 1737654321000)
       const numericCode = trimmed;
@@ -182,32 +182,32 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         console.log('🔍 extractSessionCode - Código numérico direto (8+ dígitos):', numericCode);
         return numericCode;
       }
-      
+
       // CORREÇÃO: Se não passou nas validações anteriores, aceitar o valor diretamente se não estiver vazio
       // Isso permite códigos customizados ou formatos não previstos
       if (trimmed.length > 0) {
         console.log('🔍 extractSessionCode - Aceitando código como está (sem validação rígida):', trimmed);
         return trimmed;
       }
-      
+
       console.warn('⚠️ extractSessionCode - Nenhum código válido encontrado');
       return null;
     } catch (error) {
       console.error('❌ Erro ao extrair código de sessão:', error);
-      
+
       // Último fallback: tenta usar o valor diretamente se for numérico ou não vazio
       const numericCode = scannedValue.trim();
       if (/^\d{8,}$/.test(numericCode)) {
         console.log('🔍 extractSessionCode - Fallback numérico:', numericCode);
         return numericCode;
       }
-      
+
       // Se não é numérico mas não está vazio, aceitar mesmo assim
       if (numericCode.length > 0) {
         console.log('🔍 extractSessionCode - Fallback: aceitando código como está:', numericCode);
         return numericCode;
       }
-      
+
       return null;
     }
   };
@@ -222,7 +222,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         const savedDeviceId = localStorage.getItem(`pbx_device_id_${user.id}`)
         if (savedDeviceId) {
           console.log('📱 Pareamento persistido encontrado:', savedDeviceId)
-          
+
           // Verificar se o dispositivo ainda existe e está pareado no banco
           const { data: device, error } = await supabase
             .from('devices')
@@ -230,7 +230,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             .eq('id', savedDeviceId)
             .eq('user_id', user.id)
             .single()
-          
+
           // CORREÇÃO: Verificar explicitamente se status é 'unpaired' e limpar tudo
           if (error || !device || device.status === 'unpaired') {
             // Dispositivo foi despareado ou não existe mais, limpar TUDO
@@ -244,54 +244,54 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             setIsConnected(false)
             return
           }
-          
+
           // Dispositivo ainda está pareado, restaurar estado
           if (device.status !== 'unpaired') {
             setDeviceId(device.id)
             setIsPaired(true)
             setIsConnected(true)
-            
+
             // Verificar permissões (sem pedir, apenas verificar)
             let dialerResult;
             try {
               dialerResult = await PbxMobile.hasRoleDialer()
               setHasDialerRole(dialerResult.hasRole)
-              
+
               // Verificar se já tem todas as permissões
               setHasAllPermissions(dialerResult.hasRole)
               setIsConfigured(dialerResult.hasRole)
-              
+
               // CORREÇÃO: Atualizar chamadas ativas ao restaurar pareamento
               updateActiveCalls()
             } catch (error) {
               console.error('Erro ao verificar permissões:', error)
               dialerResult = { hasRole: false } // Fallback se der erro
             }
-            
+
             // CORREÇÃO: Pedir permissões automaticamente apenas UMA VEZ por dispositivo
             const permissionsRequestedKey = `pbx_permissions_requested_${savedDeviceId}`
             const alreadyRequested = localStorage.getItem(permissionsRequestedKey)
-            
+
             if (!alreadyRequested && !dialerResult.hasRole) {
               console.log('🔐 Pedindo permissões automaticamente pela primeira vez...')
               // Salvar no localStorage que já pediu (antes mesmo de pedir, para evitar múltiplas tentativas)
               localStorage.setItem(permissionsRequestedKey, 'true')
-              
+
               // Pedir permissões automaticamente
               try {
                 const permissionResult = await PbxMobile.requestAllPermissions()
                 setHasAllPermissions(permissionResult.granted)
-                
+
                 // Se permissões foram concedidas, pedir dialer role também
                 if (permissionResult.granted) {
                   const roleResult = await PbxMobile.requestRoleDialer()
                   setHasDialerRole(roleResult.granted)
-                  
+
                   if (roleResult.granted) {
                     // Registrar phone account
                     await PbxMobile.registerPhoneAccount({ accountLabel: deviceName })
                     setIsConfigured(true)
-                    
+
                     toast({
                       title: "Permissões concedidas",
                       description: "App configurado automaticamente como discador padrão",
@@ -307,7 +307,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             } else {
               console.log('✅ Permissões já foram pedidas anteriormente ou já estão configuradas')
             }
-            
+
             console.log('✅ Pareamento restaurado com sucesso')
           } else {
             // Dispositivo foi despareado ou não existe mais, limpar localStorage
@@ -327,7 +327,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     // Automatically fill session code from URL parameters and auto-pair if possible
     const urlParams = new URLSearchParams(window.location.search);
     const sessionFromUrl = urlParams.get('session');
-    
+
     if (sessionFromUrl && !deviceId) {
       const extractedCode = extractSessionCode(sessionFromUrl);
       if (extractedCode && typeof extractedCode === 'string' && extractedCode.trim().length > 0) {
@@ -352,31 +352,31 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   useEffect(() => {
     const setup = async () => {
       console.log("Setting up native event listeners...");
-      
+
       // CORREÇÃO CRÍTICA: Marcar listener como pronto IMEDIATAMENTE, não esperar por async callback
       // Isso evita race condition onde start_campaign chega antes da useEffect completar
       dialerListenerReadyRef.current = true;
       console.log(`✅ [SYNC] dialerListenerReadyRef marcado como PRONTO no início do setup`);
-      
+
       // Registrar dialerCallStateChanged ANTES dos outros para garantir que está pronto
       const dialerListener = PbxMobile.addListener('dialerCallStateChanged', async (event: any) => {
         console.log(`📞 [dialerCallStateChanged] LISTENER ACIONADO - Evento recebido:`, event);
-        
+
         try {
           const eventStr = JSON.stringify(event);
           console.log(`📞 [dialerCallStateChanged] INÍCIO - Evento: ${eventStr}`);
-          
+
           if (!event) {
             console.error(`❌ [dialerCallStateChanged] Evento vazio ou inválido`);
             return;
           }
-          
+
           const eventNumber = event.number || null;
           const eventCallId = event.callId || null;
           const eventState = event.state || null;
-          
+
           console.log(`📞 [dialerCallStateChanged] number=${eventNumber}, callId=${eventCallId}, state=${eventState}`);
-          
+
           // Tentar mapear callId nativo -> dbCallId usando o número
           if (eventNumber && eventCallId && !callMapRef.current.has(eventCallId)) {
             const dbCallId = campaignNumberToDbCallIdRef.current.get(eventNumber);
@@ -387,7 +387,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               console.log(`⚠️ [dialerCallStateChanged] dbCallId não encontrado para número ${eventNumber}`);
             }
           }
-          
+
           // Atualizar banco de dados diretamente se tiver o dbCallId
           // Tenta primeiro pelo callId, depois pelo número
           let dbCallId = eventCallId ? callMapRef.current.get(eventCallId) : null;
@@ -400,13 +400,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               console.log(`🔗 [dialerCallStateChanged] Mapeado callId ${eventCallId} -> dbCallId ${dbCallId} via número ${eventNumber}`);
             }
           }
-          
+
           // Se não encontrou dbCallId, não há o que atualizar (chamada não foi criada no banco ou mapeamento falhou)
           if (!dbCallId) {
             console.log(`⚠️ [dialerCallStateChanged] dbCallId não encontrado para callId ${eventCallId} ou número ${eventNumber} - evento ignorado`);
             return;
           }
-          
+
           // Mapear estado nativo para status do banco
           const statusMap: Record<string, string> = {
             'DIALING': 'dialing',
@@ -430,16 +430,16 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             'rejected': 'ended',
             'unreachable': 'ended'
           };
-          
+
           const newStatus = statusMap[eventState] || 'ringing';
           console.log(`📞 [dialerCallStateChanged] Status mapeado: ${eventState} -> ${newStatus}`);
-          
+
           // Preparar dados de atualização
           const updateData: any = {
             status: newStatus,
             updated_at: new Date().toISOString()
           };
-          
+
           // Se chamada terminou, calcular duração
           const isEnded = ['DISCONNECTED', 'BUSY', 'FAILED', 'NO_ANSWER', 'REJECTED', 'UNREACHABLE', 'disconnected', 'busy', 'failed', 'no_answer', 'rejected', 'unreachable', 'ended'].includes(eventState);
           if (isEnded) {
@@ -451,7 +451,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               callMapRef.current.delete(eventCallId);
               console.log(`📞 [dialerCallStateChanged] Chamada terminada - duração: ${duration}s`);
             }
-            
+
             // CORREÇÃO: Atualizar active_calls_count após chamada terminar
             // OTIMIZAÇÃO: Usar updateActiveCalls que já tem lógica de otimização
             setTimeout(async () => {
@@ -461,13 +461,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             startTimesRef.current.set(eventCallId, Date.now());
             console.log(`📞 [dialerCallStateChanged] Tempo de início registrado para ${eventCallId}`);
           }
-          
+
           // Atualizar banco
           const { error } = await supabase
             .from('calls')
             .update(updateData)
             .eq('id', dbCallId);
-          
+
           if (error) {
             console.error(`❌ [dialerCallStateChanged] Erro ao atualizar chamada ${dbCallId} para ${newStatus}:`, JSON.stringify(error, null, 2));
           } else {
@@ -478,14 +478,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         }
       });
       console.log(`✅ [dialerCallStateChanged] Listener registrado com sucesso! Handle:`, dialerListener);
-      
+
       // Listener já foi marcado como pronto no início do setup (SYNC)
       // Não esperar por await para evitar race conditions
-      
+
       const handles = await Promise.all([
         PbxMobile.addListener('callStateChanged', async (event) => {
           console.log('Event: callStateChanged', event);
-          
+
           // Try to map native callId to database callId if not already mapped
           // This is needed for campaign calls where we create DB records before native calls
           if (!callMapRef.current.has(event.callId) && event.number) {
@@ -497,7 +497,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               campaignNumberToDbCallIdRef.current.delete(event.number);
             }
           }
-          
+
           if (event.state === 'disconnected') removeFromActive(event.callId);
           updateActiveCalls();
         }),
@@ -505,7 +505,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           console.log('Event: activeCallsChanged', event.calls);
           const currentCount = event.calls.length;
           setActiveCalls(event.calls);
-          
+
           // CORREÇÃO: Usa função consolidada para atualizar banco (evita race conditions)
           await syncActiveCallsCountToDb(currentCount, false);
         }),
@@ -520,7 +520,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           toast({ title: "Campanha Finalizada", description: `Foram realizadas ${summary.totalAttempts} tentativas.` });
         })
       ]);
-      
+
       // Incluir o dialerListener no array de handles para cleanup
       handles.push(dialerListener);
       console.log("Native event listeners set up.");
@@ -586,14 +586,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         const oldStatus = payload.old?.status;
         const updatedDeviceId = payload.new?.id;
         const currentDeviceId = deviceId;
-        
-        console.log('📡 Mudança de status detectada:', { 
-          deviceId: updatedDeviceId, 
-          oldStatus, 
+
+        console.log('📡 Mudança de status detectada:', {
+          deviceId: updatedDeviceId,
+          oldStatus,
           newStatus,
-          currentDeviceId 
+          currentDeviceId
         });
-        
+
         // Se o dispositivo atual foi marcado como 'unpaired' pelo dashboard
         if (updatedDeviceId === currentDeviceId && newStatus === 'unpaired') {
           console.log('⚠️ Dashboard despareou este dispositivo! Desconectando...');
@@ -610,14 +610,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   useEffect(() => {
     if (deviceId && isPaired) {
       startHeartbeat();
-      
+
       // CORREÇÃO: Atualizar chamadas ativas periodicamente quando pareado
       // OTIMIZAÇÃO: Intervalo aumentado para 30 segundos (antes era 2s) para reduzir carga no banco
       // As atualizações em tempo real via eventos já garantem sincronização imediata
       const activeCallsInterval = setInterval(() => {
         updateActiveCalls(false); // false = só atualiza se houver mudança
       }, 30000); // Atualiza a cada 30 segundos (verificação periódica de segurança)
-      
+
       // Listen for real-time updates on device status (subscription específica do dispositivo)
       const subscription = supabase
         .channel(`device-status-${deviceId}`)
@@ -651,7 +651,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     try {
       const result = await PbxMobile.requestAllPermissions();
       setHasAllPermissions(result.granted);
-      
+
       if (result.granted) {
         toast({
           title: "Permissões concedidas",
@@ -682,7 +682,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     try {
       const result = await PbxMobile.requestRoleDialer();
       setHasDialerRole(result.granted);
-      
+
       if (result.granted) {
         // Register phone account
         await PbxMobile.registerPhoneAccount({ accountLabel: deviceName });
@@ -714,27 +714,27 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
    */
   const syncActiveCallsCountToDb = async (count: number, forceSync: boolean = false) => {
     if (!deviceId || !user) return;
-    
+
     const lastCount = lastActiveCallsCountRef.current;
-    
+
     // Só atualiza se o valor mudou OU se foi forçado
     if (!forceSync && lastCount !== null && lastCount === count) {
       return; // Valor não mudou, não precisa atualizar
     }
-    
+
     // Cancela atualização pendente se houver
     if (dbUpdateTimeoutRef.current) {
       clearTimeout(dbUpdateTimeoutRef.current);
     }
-    
+
     // Armazena o valor pendente
     pendingDbUpdateRef.current = count;
-    
+
     // Debounce: aguarda 300ms antes de atualizar (consolida múltiplas atualizações)
     dbUpdateTimeoutRef.current = setTimeout(async () => {
       const countToUpdate = pendingDbUpdateRef.current;
       if (countToUpdate === null) return;
-      
+
       try {
         await supabase
           .from('devices')
@@ -744,7 +744,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           })
           .eq('id', deviceId)
           .eq('user_id', user.id);
-        
+
         lastActiveCallsCountRef.current = countToUpdate;
         console.log(`📊 [syncActiveCallsCountToDb] Sincronizado active_calls_count: ${countToUpdate}${lastCount !== null && lastCount !== countToUpdate ? ` (anterior: ${lastCount})` : ''}`);
         pendingDbUpdateRef.current = null;
@@ -758,9 +758,9 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     try {
       const result = await PbxMobile.getActiveCalls();
       const currentCount = result.calls.length;
-      
+
       setActiveCalls(result.calls);
-      
+
       // CORREÇÃO: Usa função consolidada para atualizar banco
       await syncActiveCallsCountToDb(currentCount, forceSync);
     } catch (error) {
@@ -789,7 +789,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
     // Check if we can make more calls
     const queueStatus = getQueueStatus();
-    
+
     if (queueStatus.activeCount >= 6) {
       // Add to queue instead
       addToQueue({ number });
@@ -814,13 +814,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
       // Make the call via native plugin
       const { callId } = await PbxMobile.startCall({ number });
-      
+
       // Map native callId to database call id (por callId e por número para fallback)
       callMapRef.current.set(callId, callData.id);
       campaignNumberToDbCallIdRef.current.set(number, callData.id);
-      
+
       updateActiveCalls();
-      
+
       toast({
         title: "Chamada iniciada",
         description: `Ligando para ${number}`,
@@ -839,22 +839,22 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     try {
       // Get database call ID from native call ID
       let dbCallId = callMapRef.current.get(callId);
-      
+
       console.log(`📞 [endCall] Encerrando chamada manualmente: callId nativo=${callId}, dbCallId=${dbCallId}`);
-      
+
       // CORREÇÃO: Se não encontrou o dbCallId no mapa, tentar buscar pelo número da chamada
       if (!dbCallId) {
         try {
           // Buscar a chamada ativa para pegar o número
           const activeCallsResult = await PbxMobile.getActiveCalls();
           const activeCall = activeCallsResult.calls.find((call: any) => call.callId === callId);
-          
+
           if (activeCall && activeCall.number) {
             console.log(`📞 [endCall] Chamada ativa encontrada, número: ${activeCall.number}`);
-            
+
             // Tentar encontrar pelo número no mapa de campanha
             dbCallId = campaignNumberToDbCallIdRef.current.get(activeCall.number);
-            
+
             // Se ainda não encontrou, buscar no banco de dados pela combinação device_id + number + status ativo
             if (!dbCallId && deviceId) {
               const { data: callData, error: callError } = await supabase
@@ -866,7 +866,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                 .order('created_at', { ascending: false })
                 .limit(1)
                 .single();
-              
+
               if (!callError && callData) {
                 dbCallId = callData.id;
                 // Mapear para uso futuro
@@ -875,7 +875,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                 console.log(`✅ [endCall] dbCallId encontrado no banco: ${dbCallId}`);
               }
             }
-            
+
             if (dbCallId) {
               console.log(`✅ [endCall] dbCallId encontrado via número: ${dbCallId}`);
               // Mapear para uso futuro
@@ -886,13 +886,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           console.error('❌ [endCall] Erro ao buscar dbCallId:', error);
         }
       }
-      
+
       // End call via native plugin
       await PbxMobile.endCall({ callId });
-      
+
       // CORREÇÃO: Atualizar o banco mesmo que o evento dialerCallStateChanged seja disparado depois
       // Isso garante que o dashboard veja a atualização imediatamente
-      
+
       if (dbCallId) {
         // Atualizar imediatamente o status, mas o evento dialerCallStateChanged vai calcular a duração correta
         const startTime = startTimesRef.current.get(callId);
@@ -900,7 +900,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           status: 'ended',
           updated_at: new Date().toISOString()
         };
-        
+
         // Se temos o startTime, calcular duração
         if (startTime) {
           const duration = Math.floor((Date.now() - startTime) / 1000);
@@ -908,29 +908,29 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           startTimesRef.current.delete(callId);
           console.log(`📞 [endCall] Duração calculada: ${duration}s`);
         }
-        
+
         // Atualizar banco imediatamente para o dashboard ver rápido
         const { error: updateError } = await supabase
           .from('calls')
           .update(updateData)
           .eq('id', dbCallId);
-        
+
         if (updateError) {
           console.error(`❌ [endCall] Erro ao atualizar chamada ${dbCallId} para 'ended':`, JSON.stringify(updateError, null, 2));
         } else {
           console.log(`✅ [endCall] Status atualizado no banco imediatamente para chamada ${dbCallId}`);
-          
+
           // Sincronizar active_calls_count também
           // OTIMIZAÇÃO: Usar updateActiveCalls que já tem lógica de otimização
           await updateActiveCalls(false); // false = só atualiza se mudou
         }
-        
+
         // O evento dialerCallStateChanged ainda vai ser disparado, mas o status já está 'ended'
         // então não vai causar problema (idempotente)
       } else {
         console.warn(`⚠️ [endCall] dbCallId não encontrado para callId ${callId} - banco não será atualizado imediatamente, aguardando evento dialerCallStateChanged`);
       }
-      
+
       toast({
         title: "Chamada encerrada",
       });
@@ -951,7 +951,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     try {
       const result = await PbxMobile.mergeActiveCalls();
       updateActiveCalls();
-      
+
       toast({
         title: "Chamadas mescladas",
         description: "Conferência criada com sucesso",
@@ -962,6 +962,28 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       toast({
         title: "Erro na conferência",
         description: "Falha ao mesclar chamadas",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const answerCall = async (callId: string) => {
+    try {
+      console.log(`📞 [answerCall] Atendendo chamada: ${callId}`);
+      await PbxMobile.answerCall({ callId });
+
+      toast({
+        title: "Chamada atendida",
+        description: "Chamada conectada com sucesso",
+        variant: "default"
+      });
+
+      updateActiveCalls();
+    } catch (error) {
+      console.error('❌ [answerCall] Erro ao atender chamada:', error);
+      toast({
+        title: "Erro ao atender",
+        description: "Não foi possível atender a chamada",
         variant: "destructive"
       });
     }
@@ -985,12 +1007,12 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   const handleUnpaired = async (fromDashboard: boolean = false) => {
     // CORREÇÃO: Parar heartbeat ANTES de tudo para evitar que setOffline() sobrescreva o status
     const currentDeviceId = deviceId;
-    
+
     // IMPORTANTE: Parar heartbeat PRIMEIRO para evitar que useDeviceStatus chame setOffline()
     if (currentDeviceId) {
       stopHeartbeat();
     }
-    
+
     // Se foi despareado pelo dashboard, não precisa atualizar o banco (já está 'unpaired')
     // Apenas limpar estado local
     if (!fromDashboard && currentDeviceId && user) {
@@ -999,7 +1021,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         console.log('🔌 Iniciando despareamento manual - Device ID:', currentDeviceId);
         const { data, error } = await supabase
           .from('devices')
-          .update({ 
+          .update({
             status: 'unpaired',
             last_seen: new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -1007,7 +1029,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           .eq('id', currentDeviceId)
           .eq('user_id', user.id)
           .select(); // Retorna dados atualizados para confirmar
-        
+
         if (error) {
           console.error('❌ Erro ao atualizar status do dispositivo:', error);
           toast({
@@ -1031,7 +1053,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     } else if (fromDashboard) {
       console.log('🔌 Despareamento detectado do dashboard, limpando estado local...');
     }
-    
+
     // Por último: Limpar estado local e localStorage (isso fará o useDeviceStatus desmontar, mas já atualizamos o banco)
     // currentDeviceId já foi declarado no início da função
     setDeviceId(null);
@@ -1039,7 +1061,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     setIsPaired(false);
     setIsConfigured(false);
     setSessionCode('');
-    
+
     // CORREÇÃO: Limpar pareamento persistido do localStorage
     if (user) {
       localStorage.removeItem(`pbx_device_id_${user.id}`)
@@ -1049,11 +1071,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       }
       console.log('🗑️ Pareamento e permissões removidos do localStorage')
     }
-    
+
     toast({
       title: "Dispositivo despareado",
-      description: fromDashboard 
-        ? "O dashboard desconectou este dispositivo" 
+      description: fromDashboard
+        ? "O dashboard desconectou este dispositivo"
         : "O dispositivo foi desconectado do dashboard",
       variant: "default"
     });
@@ -1062,14 +1084,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   const pairDevice = async (codeOverride?: string) => {
     // CORREÇÃO: Usar código fornecido como parâmetro ou o código do estado
     const codeToUse = codeOverride || sessionCode;
-    
+
     // CORREÇÃO: Validar que codeToUse existe e não está vazio antes de processar
     if (!codeToUse || typeof codeToUse !== 'string') {
-      console.error('❌ pairDevice - código inválido ou vazio:', { 
+      console.error('❌ pairDevice - código inválido ou vazio:', {
         codeOverride,
         sessionCode,
         codeToUse,
-        type: typeof codeToUse 
+        type: typeof codeToUse
       });
       toast({
         title: "Erro",
@@ -1081,13 +1103,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
     // CORREÇÃO: Limpar código antes de validar (remove espaços extras, quebras de linha, etc)
     const cleanedSessionCode = codeToUse.trim().replace(/\s+/g, '');
-    
+
     console.log('🔍 pairDevice - INÍCIO:', {
       sessionCodeOriginal: sessionCode,
       sessionCodeCleaned: cleanedSessionCode,
       length: cleanedSessionCode.length
     });
-    
+
     // CORREÇÃO: Verificar se cleanedSessionCode não está vazio após limpeza
     if (!cleanedSessionCode || cleanedSessionCode.length === 0) {
       console.error('❌ pairDevice - Código vazio após limpeza');
@@ -1098,23 +1120,23 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       });
       return;
     }
-    
+
     // CORREÇÃO: Extrair código de sessão usando a mesma função do QR code
     // Isso permite digitar tanto URL completa quanto código direto
     const extractedCode = extractSessionCode(cleanedSessionCode);
-    
+
     console.log('🔍 pairDevice - Após extractSessionCode:', {
       extractedCode: extractedCode || '(null)',
       extractedType: typeof extractedCode,
       extractedLength: extractedCode?.length || 0,
       isValid: extractedCode && typeof extractedCode === 'string' && extractedCode.trim().length > 0
     });
-    
+
     // CORREÇÃO: Validação mais rigorosa do código extraído
     if (!extractedCode || typeof extractedCode !== 'string' || extractedCode.trim().length === 0) {
-      console.error('❌ Código de sessão inválido após extração:', { 
-        original: sessionCode, 
-        cleaned: cleanedSessionCode, 
+      console.error('❌ Código de sessão inválido após extração:', {
+        original: sessionCode,
+        cleaned: cleanedSessionCode,
         extracted: extractedCode,
         extractedType: typeof extractedCode,
         length: extractedCode?.length || 0
@@ -1129,7 +1151,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
     // Normaliza o código extraído
     const cleanSessionCode = extractedCode.trim();
-    
+
     // CORREÇÃO: Validação específica para código de 13 dígitos (timestamp)
     if (cleanSessionCode.length !== 13 || !/^\d{13}$/.test(cleanSessionCode)) {
       console.warn('⚠️ Código não tem exatamente 13 dígitos:', {
@@ -1139,13 +1161,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       });
       // Mas continua mesmo assim, pois pode ser um formato válido alternativo
     }
-    
+
     console.log('🔍 pairDevice - Código validado:', {
       cleanSessionCode,
       length: cleanSessionCode.length,
       is13Digits: cleanSessionCode.length === 13
     });
-    
+
     if (!cleanSessionCode || cleanSessionCode.length === 0) {
       toast({
         title: "Erro",
@@ -1166,13 +1188,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
     // CORREÇÃO: Declarar persistentDeviceId fora do try para estar disponível no catch
     let persistentDeviceId: string | null = null;
-    
+
     try {
       // CORREÇÃO: Usar deviceId persistente para evitar problemas na primeira tentativa
       // IMPORTANTE: Salvar ANTES de fazer a requisição para garantir que existe na segunda tentativa
       const storageKey = `pbx_persistent_device_id_${user.id}`;
       persistentDeviceId = localStorage.getItem(storageKey);
-      
+
       if (!persistentDeviceId) {
         // Criar novo UUID e salvar IMEDIATAMENTE antes da requisição
         persistentDeviceId = crypto.randomUUID();
@@ -1218,7 +1240,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       });
 
       const data = await response.json();
-      
+
       // Log da resposta
       console.log('🔍 Pareamento - Resposta do servidor:', {
         status: response.status,
@@ -1231,9 +1253,9 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         if (!data.device || !data.device.id) {
           throw new Error('Resposta do servidor inválida: dispositivo não retornado');
         }
-        
+
         const newDeviceId = data.device.id
-        
+
         // CORREÇÃO CRÍTICA: Atualizar status para 'online' IMEDIATAMENTE após pareamento
         // Isso garante que o dispositivo apareça no dashboard
         if (user && newDeviceId) {
@@ -1247,7 +1269,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               })
               .eq('id', newDeviceId)
               .eq('user_id', user.id)
-            
+
             if (statusError) {
               console.error('❌ Erro ao atualizar status para online após pareamento:', statusError)
             } else {
@@ -1257,47 +1279,47 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             console.error('❌ Erro ao atualizar status para online:', error)
           }
         }
-        
+
         setDeviceId(newDeviceId);
         setIsConnected(true);
         setIsPaired(true);
-        
+
         // CORREÇÃO: Salvar pareamento no localStorage para persistência
         if (user) {
           localStorage.setItem(`pbx_device_id_${user.id}`, newDeviceId)
           console.log('💾 Pareamento salvo no localStorage:', newDeviceId)
-          
+
           // CORREÇÃO: Pedir permissões automaticamente apenas UMA VEZ após parear
           const permissionsRequestedKey = `pbx_permissions_requested_${newDeviceId}`
           const alreadyRequested = localStorage.getItem(permissionsRequestedKey)
-          
+
           // Verificar permissões atuais
           const dialerResult = await PbxMobile.hasRoleDialer()
           setHasDialerRole(dialerResult.hasRole)
           setHasAllPermissions(dialerResult.hasRole)
           setIsConfigured(dialerResult.hasRole)
-          
+
           // Se ainda não pediu e não tem permissões, pedir automaticamente UMA VEZ
           if (!alreadyRequested && !dialerResult.hasRole) {
             console.log('🔐 Pedindo permissões automaticamente pela primeira vez após pareamento...')
             // Salvar flag antes de pedir para evitar múltiplas tentativas
             localStorage.setItem(permissionsRequestedKey, 'true')
-            
+
             try {
               // Pedir todas as permissões
               const permissionResult = await PbxMobile.requestAllPermissions()
               setHasAllPermissions(permissionResult.granted)
-              
+
               if (permissionResult.granted) {
                 // Pedir dialer role
                 const roleResult = await PbxMobile.requestRoleDialer()
                 setHasDialerRole(roleResult.granted)
-                
+
                 if (roleResult.granted) {
                   // Registrar phone account
                   await PbxMobile.registerPhoneAccount({ accountLabel: deviceName })
                   setIsConfigured(true)
-                  
+
                   toast({
                     title: "Configurado!",
                     description: "App configurado automaticamente como discador padrão",
@@ -1350,17 +1372,17 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           sessionCodeLength: cleanSessionCode.length,
           deviceId: persistentDeviceId
         });
-        
+
         // Mensagem de erro mais específica
         let errorMessage = data?.error || "Erro desconhecido no pareamento";
-        
+
         // Se for erro 400, provavelmente é código inválido/expirado
         if (response.status === 400) {
           errorMessage = data?.error || "Código de sessão inválido ou expirado. Gere um novo QR Code no dashboard.";
         } else if (response.status === 500) {
           errorMessage = "Erro no servidor. Tente novamente em alguns instantes.";
         }
-        
+
         toast({
           title: "Erro no pareamento",
           description: errorMessage,
@@ -1377,7 +1399,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         sessionCodeLength: cleanSessionCode?.length,
         deviceId: persistentDeviceId
       });
-      
+
       toast({
         title: "Erro",
         description: error?.message || "Falha na comunicação com o servidor. Verifique sua conexão e tente novamente.",
@@ -1400,14 +1422,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       // Update device as configured
       await supabase
         .from('devices')
-        .update({ 
+        .update({
           status: 'configured',
           updated_at: new Date().toISOString()
         })
         .eq('id', deviceId);
 
       setIsConfigured(true);
-      
+
       toast({
         title: "Configuração confirmada",
         description: "Dispositivo pronto para receber chamadas",
@@ -1427,24 +1449,24 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     const scannedValue = await scanQRCode();
     if (scannedValue) {
       console.log('📷 QR Code escaneado (valor bruto):', scannedValue);
-      
+
       const extractedCode = extractSessionCode(scannedValue);
       console.log('📷 Código extraído:', extractedCode);
-      
+
       if (extractedCode && typeof extractedCode === 'string' && extractedCode.trim().length > 0) {
         // Remove espaços e normaliza
         const cleanCode = extractedCode.trim();
-        
+
         // CORREÇÃO: Atualizar estado E chamar pairDevice diretamente com o código
         // Isso evita race condition onde pairDevice é chamado antes do estado ser atualizado
         setSessionCode(cleanCode);
-        
+
         toast({
           title: "Código extraído",
           description: `Código de sessão: ${cleanCode}`,
           variant: "default"
         });
-        
+
         // CORREÇÃO: Chamar pairDevice diretamente com o código extraído
         // Não precisa esperar setTimeout, pois passamos o código como parâmetro
         console.log('🚀 Iniciando pareamento automático com código extraído...');
@@ -1504,11 +1526,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       .channel(`heartbeat-${user.id}`)
       .on('broadcast', { event: 'ping' }, async (payload) => {
         const { device_id, user_id, timestamp } = payload.payload;
-        
+
         // Verificar se o ping é para este dispositivo
         if (device_id === deviceId && user_id === user.id) {
           console.log(`📡 Recebido ping do dashboard, enviando pong... (latência: ${Date.now() - timestamp}ms)`);
-          
+
           // Atualizar last_seen no banco (heartbeat)
           try {
             await supabase
@@ -1522,7 +1544,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           } catch (error) {
             console.error('Erro ao atualizar last_seen no heartbeat:', error);
           }
-          
+
           // Responder com pong via broadcast
           try {
             const pongChannel = supabase.channel(`heartbeat-pong-${user.id}`);
@@ -1551,7 +1573,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
   const handleCommand = async (command: any) => {
     console.log('Comando recebido do dashboard:', JSON.stringify(command, null, 2));
-    
+
     switch (command.command) {
       case 'make_call':
         console.log('Processando comando make_call:', command.data);
@@ -1562,14 +1584,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           variant: "default"
         });
         break;
-        
+
       case 'start_campaign':
         console.log('🎯 [start_campaign] INCOMING COMMAND:', JSON.stringify(command, null, 2));
         console.log('🎯 [start_campaign] command.data:', command.data);
         console.log('🎯 [start_campaign] command.data.list:', command.data?.list);
         console.log('🎯 [start_campaign] command.data.list.numbers:', command.data?.list?.numbers);
         console.log('🎯 [start_campaign] numbers count:', command.data?.list?.numbers?.length || 0);
-        
+
         // Verificar se o listener está pronto antes de iniciar a campanha
         let retryCount = 0;
         const maxRetries = 40; // 40 retries * 250ms = 10 segundos máximo (aumentado por causa de race conditions em alguns dispositivos)
@@ -1582,32 +1604,32 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           await new Promise(resolve => setTimeout(resolve, 250));
           retryCount++;
         }
-        
+
         if (!dialerListenerReadyRef.current) {
           console.error(`❌ [start_campaign] TIMEOUT: Listener dialerCallStateChanged não ficou pronto após ${maxRetries * 250}ms! (current=${dialerListenerReadyRef.current})`);
-          toast({ 
-            title: "Erro na Campanha", 
-            description: "Sistema não está pronto. Tente novamente em alguns segundos.", 
-            variant: "destructive" 
+          toast({
+            title: "Erro na Campanha",
+            description: "Sistema não está pronto. Tente novamente em alguns segundos.",
+            variant: "destructive"
           });
           break;
         }
-        
+
         console.log(`✅ [start_campaign] Listener dialerCallStateChanged está pronto (retry ${retryCount})`);
-        
+
         if (command.data.list && command.data.list.numbers) {
           try {
             setCampaignName(command.data.listName);
-            
+
             // Clear previous campaign mappings
             campaignNumberToDbCallIdRef.current.clear();
-            
+
             // Create database records for each number BEFORE starting the campaign
             const numbersToCall: string[] = command.data.list.numbers;
             const sessionId = `campaign_${Date.now()}`;
-            
+
             console.log(`📝 Criando ${numbersToCall.length} registros no banco antes de iniciar campanha...`);
-            
+
             // Verificar autenticação antes de inserir
             const { data: { session }, error: sessionError } = await supabase.auth.getSession();
             if (sessionError) {
@@ -1620,15 +1642,15 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               toast({ title: "Erro de Autenticação", description: "Usuário não autenticado", variant: "destructive" });
               return;
             }
-            
+
             console.log(`✅ Sessão ativa encontrada - User ID: ${session.user.id}`);
             console.log(`✅ User do hook: ${user?.id}`);
             console.log(`✅ Device ID: ${deviceId}`);
-            
+
             if (session.user.id !== user?.id) {
               console.warn(`⚠️ ATENÇÃO: auth.uid() (${session.user.id}) !== user.id (${user?.id})`);
             }
-            
+
             for (const number of numbersToCall) {
               try {
                 console.log(`📤 Tentando inserir chamada no banco para ${number}...`);
@@ -1642,7 +1664,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                   start_time: new Date().toISOString()
                 };
                 console.log(`📤 Dados para inserção:`, JSON.stringify(insertData, null, 2));
-                
+
                 const { data: dbCall, error: dbError } = await supabase
                   .from('calls')
                   .insert(insertData)
@@ -1655,13 +1677,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                   const errorDetails = String(dbError.details || 'Sem detalhes');
                   const errorHint = String(dbError.hint || 'Sem hint');
                   const errorCode = String(dbError.code || 'Sem código');
-                  
+
                   console.error(`❌ Erro ao criar registro para ${number}`);
                   console.error(`  Mensagem: ${errorMsg}`);
                   console.error(`  Detalhes: ${errorDetails}`);
                   console.error(`  Hint: ${errorHint}`);
                   console.error(`  Código: ${errorCode}`);
-                  
+
                   // Tentar serializar o erro completo como JSON
                   try {
                     const errorJson = JSON.stringify({
@@ -1675,7 +1697,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                   } catch (e) {
                     console.error(`  Erro ao serializar: ${String(e)}`);
                   }
-                  
+
                   continue; // Skip this number but continue with others
                 }
 
@@ -1709,7 +1731,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               listName: command.data.listName,
               simId: selectedSimId
             });
-            
+
             await PbxMobile.startCampaign({
               numbers: numbersToCall,
               deviceId: deviceId!,
@@ -1717,13 +1739,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               listName: command.data.listName,
               simId: selectedSimId
             });
-            
+
             console.log(`✅ [start_campaign] PbxMobile.startCampaign() completed successfully`);
-            
+
             setCampaignSummary(null); // Clear previous summary
-            toast({ 
-              title: "Campanha Iniciada", 
-              description: `Iniciando chamadas para ${numbersToCall.length} números. ${campaignNumberToDbCallIdRef.current.size} registros criados no banco.` 
+            toast({
+              title: "Campanha Iniciada",
+              description: `Iniciando chamadas para ${numbersToCall.length} números. ${campaignNumberToDbCallIdRef.current.size} registros criados no banco.`
             });
           } catch (error: any) {
             const errorDetails = {
@@ -1741,7 +1763,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           toast({ title: "Erro na Campanha", description: "Dados da lista de números são inválidos", variant: "destructive" });
         }
         break;
-        
+
       case 'end_call':
         console.log('📥 Processando comando end_call do dashboard:', command.data);
         // End specific call
@@ -1755,14 +1777,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             });
             break;
           }
-          
+
           const dbCallId = command.data.callId; // ID do banco de dados
           console.log(`📥 [end_call] Buscando callId nativo para dbCallId: ${dbCallId}`);
-          
+
           // CORREÇÃO: O dashboard envia o dbCallId, precisamos encontrar o callId nativo
           // Buscar no mapa reverso (dbCallId -> callId nativo)
           let nativeCallId: string | null = null;
-          
+
           // 1. Tentar encontrar no mapa callMapRef (callId nativo -> dbCallId)
           for (const [nativeId, dbId] of callMapRef.current.entries()) {
             if (dbId === dbCallId) {
@@ -1771,7 +1793,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               break;
             }
           }
-          
+
           // 2. Se não encontrou no mapa, buscar nas chamadas ativas pelo número
           if (!nativeCallId) {
             console.log(`⚠️ [end_call] CallId nativo não encontrado no mapa, buscando nas chamadas ativas...`);
@@ -1782,15 +1804,15 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                 .select('number, device_id')
                 .eq('id', dbCallId)
                 .single();
-              
+
               if (!callError && callData) {
                 const callNumber = callData.number;
                 console.log(`📥 [end_call] Número da chamada encontrado: ${callNumber}`);
-                
+
                 // Buscar nas chamadas ativas pelo número
                 const activeCallsResult = await PbxMobile.getActiveCalls();
                 const matchingCall = activeCallsResult.calls.find((call: any) => call.number === callNumber);
-                
+
                 if (matchingCall) {
                   nativeCallId = matchingCall.callId;
                   // Adicionar ao mapa para uso futuro
@@ -1802,7 +1824,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               console.error('❌ [end_call] Erro ao buscar informações da chamada:', error);
             }
           }
-          
+
           if (!nativeCallId) {
             console.error(`❌ [end_call] Não foi possível encontrar callId nativo para dbCallId: ${dbCallId}`);
             toast({
@@ -1814,7 +1836,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             try {
               await supabase
                 .from('calls')
-                .update({ 
+                .update({
                   status: 'ended',
                   updated_at: new Date().toISOString()
                 })
@@ -1825,38 +1847,38 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             }
             break;
           }
-          
+
           console.log(`📞 [end_call] Encerrando chamada com callId nativo: ${nativeCallId}`);
           await PbxMobile.endCall({ callId: nativeCallId });
-          
+
           // Atualizar banco de dados
           const startTime = startTimesRef.current.get(nativeCallId);
           const updateData: any = {
             status: 'ended',
             updated_at: new Date().toISOString()
           };
-          
+
           if (startTime) {
             const duration = Math.floor((Date.now() - startTime) / 1000);
             updateData.duration = duration;
             startTimesRef.current.delete(nativeCallId);
             console.log(`📞 [end_call] Duração calculada: ${duration}s`);
           }
-          
+
           await supabase
             .from('calls')
             .update(updateData)
             .eq('id', dbCallId);
-          
+
           // Remover do mapa
           callMapRef.current.delete(nativeCallId);
-          
+
           // Atualizar contagem de chamadas ativas
           // OTIMIZAÇÃO: Usar updateActiveCalls que já tem lógica de otimização
           setTimeout(async () => {
             await updateActiveCalls(false); // false = só atualiza se mudou
           }, 500);
-          
+
           console.log(`✅ [end_call] Chamada encerrada com sucesso`);
           toast({
             title: "Chamada encerrada",
@@ -1872,7 +1894,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           });
         }
         break;
-        
+
       case 'answer_call':
         console.log('Processando comando answer_call:', command.data);
         // Auto-answer call (if supported)
@@ -1889,7 +1911,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           console.error('Error answering call:', error);
         }
         break;
-        
+
       case 'mute_call':
         console.log('Processando comando mute_call:', command.data);
         // Mute current call
@@ -1899,7 +1921,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           variant: "default"
         });
         break;
-        
+
       case 'stop_campaign':
         console.log('📥 Processando comando stop_campaign do dashboard');
         try {
@@ -1914,13 +1936,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           });
         }
         break;
-        
+
       case 'unpair':
         console.log('Processando comando unpair do dashboard');
         // Desparear dispositivo quando receber comando do dashboard
         await handleUnpaired();
         break;
-        
+
       default:
         console.log('Comando desconhecido:', command.command, command);
         toast({
@@ -1953,73 +1975,73 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     try {
       // 1. Parar campanha no native
       await PbxMobile.stopCampaign();
-      
+
       // 2. Aguardar um pouco para as chamadas serem desconectadas
       await new Promise(resolve => setTimeout(resolve, 1500));
-      
+
       // 3. Buscar TODAS as chamadas ativas do dispositivo no banco e atualizar para 'ended'
       if (!deviceId) {
         console.warn('⚠️ [handleStopCampaign] deviceId não disponível, não é possível atualizar chamadas no banco');
         return;
       }
-      
+
       console.log(`🛑 [handleStopCampaign] Buscando todas as chamadas ativas do dispositivo ${deviceId}...`);
-      
+
       // Buscar todas as chamadas ativas do dispositivo que não estão como 'ended'
       const { data: activeCalls, error: fetchError } = await supabase
         .from('calls')
         .select('id, start_time, status')
         .eq('device_id', deviceId)
         .in('status', ['queued', 'dialing', 'ringing', 'answered']);
-      
+
       if (fetchError) {
         console.error('❌ [handleStopCampaign] Erro ao buscar chamadas ativas:', fetchError);
       } else if (activeCalls && activeCalls.length > 0) {
         console.log(`📞 [handleStopCampaign] Encontradas ${activeCalls.length} chamadas ativas para atualizar`);
-        
+
         // Atualizar cada chamada para 'ended' com duração calculada
         const updates = activeCalls.map(async (call) => {
           const updateData: any = {
             status: 'ended',
             updated_at: new Date().toISOString()
           };
-          
+
           // Calcular duração se tiver start_time
           if (call.start_time) {
             const startTime = new Date(call.start_time).getTime();
             const duration = Math.floor((Date.now() - startTime) / 1000);
             updateData.duration = duration;
           }
-          
+
           const { error: updateError } = await supabase
             .from('calls')
             .update(updateData)
             .eq('id', call.id);
-          
+
           if (updateError) {
             console.error(`❌ [handleStopCampaign] Erro ao atualizar chamada ${call.id}:`, updateError);
           } else {
             console.log(`✅ [handleStopCampaign] Chamada ${call.id} atualizada para 'ended' (status anterior: ${call.status})`);
           }
         });
-        
+
         await Promise.all(updates);
-        
+
         // Atualizar active_calls_count do dispositivo
         await updateActiveCalls(true); // force = true para garantir atualização
-        
+
         console.log(`✅ [handleStopCampaign] Todas as ${activeCalls.length} chamadas foram atualizadas para 'ended'`);
       } else {
         console.log(`ℹ️ [handleStopCampaign] Nenhuma chamada ativa encontrada para atualizar`);
       }
-      
+
       // Limpar mapeamentos da campanha
       campaignNumberToDbCallIdRef.current.clear();
       callMapRef.current.clear();
-      
+
       toast({
         title: "Campanha encerrada",
-        description: activeCalls && activeCalls.length > 0 
+        description: activeCalls && activeCalls.length > 0
           ? `${activeCalls.length} chamada(s) foram atualizadas para encerradas`
           : "Campanha foi encerrada",
         variant: "default"
@@ -2038,12 +2060,12 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     // CORREÇÃO: Mostrar discador apenas se estiver pareado E (configurado OU houver chamadas/campanha)
     // NUNCA mostrar discador se não estiver pareado (sempre mostrar primeira tela)
     const shouldShowDialer = isPaired && (
-      (isConfigured && hasDialerRole) || 
-      activeCalls.length > 0 || 
-      campaignProgress !== null || 
+      (isConfigured && hasDialerRole) ||
+      activeCalls.length > 0 ||
+      campaignProgress !== null ||
       pendingCall !== null
     );
-    
+
     if (shouldShowDialer) {
       const dialerProps = {
         deviceName,
@@ -2056,6 +2078,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         activeCalls,
         onMakeCall: makeCall,
         onEndCall: endCall,
+        onAnswerCall: answerCall,
         onMergeActiveCalls: mergeActiveCalls,
         deviceModel: deviceInfo.model,
         campaignProgress,
@@ -2111,7 +2134,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             <h1 className="text-2xl font-bold">PBX Mobile</h1>
             <p className="text-muted-foreground">Conecte-se ao seu dashboard</p>
           </div>
-          
+
           {/* Device Info Display */}
           <Card className="bg-muted/50">
             <CardContent className="p-4">
@@ -2131,7 +2154,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -2150,24 +2173,24 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             </CardHeader>
             <CardContent className="space-y-4">
               {!isConnected ? (
-                  <div className="space-y-4">
-                    {/* Opção de escanear QR Code */}
-                    <div className="text-center space-y-4">
-                      <Button 
-                        onClick={handleScanQR}
-                        className="w-full h-14 text-lg"
-                        size="lg"
-                      >
-                        📷 Escanear QR Code
-                      </Button>
-                      
-                      <div className="flex items-center gap-4">
-                        <hr className="flex-1" />
-                        <span className="text-xs text-muted-foreground">OU</span>
-                        <hr className="flex-1" />
-                      </div>
+                <div className="space-y-4">
+                  {/* Opção de escanear QR Code */}
+                  <div className="text-center space-y-4">
+                    <Button
+                      onClick={handleScanQR}
+                      className="w-full h-14 text-lg"
+                      size="lg"
+                    >
+                      📷 Escanear QR Code
+                    </Button>
+
+                    <div className="flex items-center gap-4">
+                      <hr className="flex-1" />
+                      <span className="text-xs text-muted-foreground">OU</span>
+                      <hr className="flex-1" />
                     </div>
-                  
+                  </div>
+
                   {/* Opção manual */}
                   <div className="space-y-2">
                     <Label htmlFor="sessionCode">Inserir Código Manualmente</Label>
@@ -2192,9 +2215,9 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                       ID: {deviceId?.slice(0, 8)}...
                     </p>
                   </div>
-                  <Button 
-                    onClick={disconnect} 
-                    variant="outline" 
+                  <Button
+                    onClick={disconnect}
+                    variant="outline"
                     className="w-full"
                   >
                     Desconectar
@@ -2230,9 +2253,9 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                 ) : (
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{deviceName}</span>
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => setIsEditingName(true)}
                     >
                       Editar
@@ -2240,7 +2263,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                   </div>
                 )}
               </div>
-              
+
               {/* Dialer Role Status */}
               <div className="space-y-2">
                 <Label>Permissões</Label>
@@ -2270,12 +2293,12 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               </div>
 
               {/* SIM Card Selection */}
-              <SimSelector 
+              <SimSelector
                 simCards={simCards}
                 selectedSimId={selectedSimId}
                 onSimSelect={setSelectedSimId}
               />
-              
+
               {/* Call Queue Status */}
               {(() => {
                 const status = getQueueStatus();
@@ -2293,15 +2316,15 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                       </div>
                     </div>
                     <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                      <div 
+                      <div
                         className="h-full bg-primary transition-all duration-300"
                         style={{ width: `${(status.activeCount / 6) * 100}%` }}
                       />
                     </div>
                     {status.queuedCount > 0 && (
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
+                      <Button
+                        size="sm"
+                        variant="outline"
                         className="w-full text-xs"
                         onClick={clearQueue}
                       >
@@ -2311,7 +2334,7 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                   </div>
                 ) : null;
               })()}
-              
+
               {/* Configuration confirmation button */}
               {isPaired && hasDialerRole && !isConfigured && (
                 <div className="pt-4">
@@ -2342,16 +2365,16 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
                       <p className="font-medium">{call.number}</p>
                       <p className="text-sm text-muted-foreground">{call.state}</p>
                     </div>
-                    <Button 
-                      size="sm" 
-                      variant="destructive" 
+                    <Button
+                      size="sm"
+                      variant="destructive"
                       onClick={() => endCall(call.callId)}
                     >
                       <PhoneOff className="h-4 w-4" />
                     </Button>
                   </div>
                 ))}
-                
+
                 {activeCalls.length > 1 && (
                   <Button onClick={mergeActiveCalls} className="w-full">
                     Mesclar Chamadas (Conferência)

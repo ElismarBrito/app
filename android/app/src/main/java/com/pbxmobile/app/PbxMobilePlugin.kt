@@ -348,6 +348,29 @@ class PbxMobilePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun answerCall(call: PluginCall) {
+        val callId = call.getString("callId")
+        
+        if (callId.isNullOrBlank()) {
+            call.reject("Call ID is required")
+            return
+        }
+        
+        Log.d(TAG, "Answering call: $callId")
+        
+        val inCallService = ServiceRegistry.getInCallService()
+        val answered = inCallService?.answerCall(callId) ?: false
+        
+        if (answered) {
+            Log.d(TAG, "Call answered successfully: $callId")
+            call.resolve()
+        } else {
+            Log.w(TAG, "Cannot answer call: $callId")
+            call.reject("Cannot answer call - not ringing or not found")
+        }
+    }
+
+    @PluginMethod
     fun mergeActiveCalls(call: PluginCall) {
         Log.d(TAG, "Merging active calls")
         

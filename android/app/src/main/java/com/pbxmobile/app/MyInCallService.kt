@@ -1,17 +1,27 @@
 package com.pbxmobile.app
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.telecom.Call
 import android.telecom.InCallService
 import android.telecom.VideoProfile
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import java.util.concurrent.ConcurrentHashMap
 
 class MyInCallService : InCallService() {
     private val TAG = "MyInCallService"
     private val activeCalls = ConcurrentHashMap<String, CallWrapper>()
     private val handler = Handler(Looper.getMainLooper())
+    
+    // Constantes para notificação de chamada recebida
+    private val INCOMING_CALL_NOTIFICATION_ID = 2001
+    private val INCOMING_CALL_CHANNEL_ID = "incoming_call_channel"
     
     override fun onCreate() {
         super.onCreate()
@@ -55,13 +65,100 @@ class MyInCallService : InCallService() {
         Log.d(TAG, "📞 Notificando estado inicial: $callId -> $state")
         ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, state, phoneNumber)
         
-        // CORREÇÃO: Atualiza UI apenas se não há campanha ativa (fallback para chamadas manuais)
+        // CORREÇÃO: Atualiza UI imediatamente para chamadas recebidas (ringing) independente de campanha
+        // Para chamadas normais ou recebidas, sempre atualiza para o usuário poder atender
         val powerDialerManager = ServiceRegistry.getPlugin()?.powerDialerManager
-        if (powerDialerManager == null || !powerDialerManager.hasActiveCampaign()) {
-            // Se não há campanha ativa, atualiza diretamente para chamadas manuais
+        val isRingingCall = call.state == Call.STATE_RINGING
+        
+        if (isRingingCall || powerDialerManager == null || !powerDialerManager.hasActiveCampaign()) {
+            // Se é chamada recebida (ringing) ou não há campanha ativa, atualiza imediatamente
+            Log.d(TAG, "📞 Atualizando UI imediatamente (ringing=$isRingingCall, campanha=${powerDialerManager?.hasActiveCampaign()})")
             updateActiveCallsList()
         }
-        // Se há campanha ativa, PowerDialerManager atualizará com throttle
+        
+        // CORREÇÃO: Abrir app automaticamente quando chamada está tocando
+        if (isRingingCall) {
+            Log.d(TAG, "📱 Chamada recebida detectada! Abrindo app para usuário atender...")
+            bringAppToForeground(phoneNumber)
+        }
+        // Se há campanha ativa e não é ringing, PowerDialerManager atualizará com throttle
+    }
+    
+    /**
+     * Mostra notificação heads-up com fullScreenIntent para chamadas recebidas
+     * Isso contorna as restrições do Android 10+ sobre abertura de Activities em background
+     */
+    private fun bringAppToForeground(phoneNumber: String) {
+        try {
+            // Criar canal de notificação de alta prioridade (necessário para Android 8.0+)
+            createIncomingCallNotificationChannel()
+            
+            // Intent para abrir o app
+            val fullScreenIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or 
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("INCOMING_CALL", true)
+                putExtra("CALLER_NUMBER", phoneNumber)
+            }
+            
+            val fullScreenPendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                fullScreenIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            
+            // Notificação heads-up com prioridade máxima
+            val notification = NotificationCompat.Builder(this, INCOMING_CALL_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_menu_call)
+                .setContentTitle("Chamada recebida")
+                .setContentText("Ligação de: $phoneNumber")
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setFullScreenIntent(fullScreenPendingIntent, true)
+                .setAutoCancel(true)
+                .setOngoing(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .build()
+            
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager.notify(INCOMING_CALL_NOTIFICATION_ID, notification)
+            
+            Log.d(TAG, "✅ Notificação de chamada recebida mostrada para: $phoneNumber")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Erro ao mostrar notificação de chamada recebida", e)
+        }
+    }
+    
+    /**
+     * Cria canal de notificação de alta prioridade para chamadas recebidas
+     */
+    private fun createIncomingCallNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                INCOMING_CALL_CHANNEL_ID,
+                "Chamadas Recebidas",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notificações para chamadas recebidas"
+                setShowBadge(true)
+                enableLights(true)
+                enableVibration(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+            }
+            
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+    
+    /**
+     * Cancela a notificação de chamada recebida
+     */
+    private fun cancelIncomingCallNotification() {
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager.cancel(INCOMING_CALL_NOTIFICATION_ID)
     }
 
     override fun onCallRemoved(call: Call) {
@@ -69,6 +166,9 @@ class MyInCallService : InCallService() {
         
         val callId = extractCallId(call)
         Log.d(TAG, "Call removed: $callId")
+        
+        // Cancela notificação de chamada recebida (se existir)
+        cancelIncomingCallNotification()
         
         val wrapper = activeCalls.remove(callId)
         wrapper?.let {

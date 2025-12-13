@@ -123,7 +123,7 @@ export interface PbxMobilePlugin {
   requestAllPermissions(): Promise<{ granted: boolean }>;
   getSimCards(): Promise<{ simCards: SimCardInfo[] }>;
   getDeviceName(): Promise<{ deviceName: string }>;
-  
+
   // --- Funções de Discador (ROLE_DIALER) ---
   requestRoleDialer(): Promise<{ granted: boolean }>;
   hasRoleDialer(): Promise<{ hasRole: boolean }>;
@@ -132,6 +132,7 @@ export interface PbxMobilePlugin {
   // --- Controle de Chamada Manual ---
   startCall(options: { number: string; simId?: string }): Promise<{ callId: string }>;
   endCall(options: { callId: string }): Promise<void>;
+  answerCall(options: { callId: string }): Promise<void>;
   mergeActiveCalls(): Promise<{ conferenceId: string }>;
   getActiveCalls(): Promise<{ calls: CallInfo[] }>;
 
@@ -143,7 +144,7 @@ export interface PbxMobilePlugin {
     listName: string;
     simId?: string;
   }): Promise<{ sessionId: string }>;
-  
+
   pauseCampaign(): Promise<void>;
   resumeCampaign(): Promise<void>;
   stopCampaign(): Promise<void>;
@@ -161,7 +162,7 @@ export interface PbxMobilePlugin {
     eventName: 'conferenceEvent',
     listenerFunc: (event: ConferenceEvent) => void,
   ): Promise<PluginListenerHandle>;
-  
+
   addListener(
     eventName: 'activeCallsChanged',
     listenerFunc: (event: { calls: CallInfo[] }) => void,

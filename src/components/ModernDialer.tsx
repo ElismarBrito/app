@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Phone, PhoneOff, Delete, Users, Clock, Signal, Smartphone, Play, Pause, Square } from "lucide-react"
+import { Phone, PhoneOff, PhoneIncoming, Delete, Users, Clock, Signal, Smartphone, Play, Pause, Square } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import type { CallInfo, CampaignProgress } from "@/plugins/pbx-mobile"
 
@@ -22,6 +22,7 @@ interface ModernDialerProps {
   activeCalls: CallInfo[]
   onMakeCall: (number: string) => void
   onEndCall: (callId: string) => void
+  onAnswerCall: (callId: string) => void
   onMergeActiveCalls: () => void
   deviceModel: string
   campaignProgress: CampaignProgress | null
@@ -37,6 +38,7 @@ export function ModernDialer({
   activeCalls,
   onMakeCall,
   onEndCall,
+  onAnswerCall,
   onMergeActiveCalls,
   deviceModel,
   campaignProgress,
@@ -218,15 +220,14 @@ export function ModernDialer({
                           <p className="font-semibold text-gray-900">{call.number}</p>
                           <p className="text-xs text-gray-600 flex items-center gap-1.5 mt-0.5">
                             <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                call.state === "active"
-                                  ? "bg-green-500 animate-pulse"
-                                  : call.state === "dialing"
-                                    ? "bg-blue-500 animate-pulse"
-                                    : call.state === "ringing"
-                                      ? "bg-yellow-500 animate-pulse"
-                                      : "bg-gray-400"
-                              }`}
+                              className={`w-1.5 h-1.5 rounded-full ${call.state === "active"
+                                ? "bg-green-500 animate-pulse"
+                                : call.state === "dialing"
+                                  ? "bg-blue-500 animate-pulse"
+                                  : call.state === "ringing"
+                                    ? "bg-yellow-500 animate-pulse"
+                                    : "bg-gray-400"
+                                }`}
                             />
                             {call.state === "dialing"
                               ? "Discando..."
@@ -239,14 +240,26 @@ export function ModernDialer({
                                     : call.state}
                           </p>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => onEndCall(call.callId)}
-                          className="h-9 w-9 p-0 rounded-full bg-red-500 hover:bg-red-600 text-white focus-visible:outline-none focus-visible:ring-0"
-                        >
-                          <PhoneOff className="w-4 h-4" />
-                        </Button>
+                        <div className="flex gap-2">
+                          {call.state === 'ringing' && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => onAnswerCall(call.callId)}
+                              className="h-9 w-9 p-0 rounded-full bg-green-500 hover:bg-green-600 text-white focus-visible:outline-none focus-visible:ring-0"
+                            >
+                              <PhoneIncoming className="w-4 h-4" />
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => onEndCall(call.callId)}
+                            className="h-9 w-9 p-0 rounded-full bg-red-500 hover:bg-red-600 text-white focus-visible:outline-none focus-visible:ring-0"
+                          >
+                            <PhoneOff className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                 </div>
