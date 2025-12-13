@@ -57,7 +57,17 @@ class AttemptManager(
         return !finishedNumbers.contains(number)
     }
 
-    suspend fun canDial(number: String): Boolean {
+    /**
+     * Verifica se pode discar o número
+     * @param forceForPool Se true, ignora restrições de maxRetries e backoff (usado quando pool precisa de chamadas)
+     */
+    suspend fun canDial(number: String, forceForPool: Boolean = false): Boolean {
+        // CORREÇÃO: Se forceForPool=true, sempre permite discar para manter pool cheio
+        if (forceForPool) {
+            Log.d(TAG, "✅ canDial: forçando permissão para $number (pool precisa de chamadas)")
+            return true
+        }
+        
         val attempts = getAttempts(number)
         if (attempts >= maxRetries) {
             finishedNumbers.add(number)
@@ -66,6 +76,29 @@ class AttemptManager(
         val now = System.currentTimeMillis()
         val until = backoffUntil[number] ?: 0L
         return until <= now
+    }
+    
+    /**
+     * Libera um número para ser discado novamente (remove de finalizados e backoff)
+     * Usado quando o pool precisa de chamadas e não há outros números disponíveis
+     */
+    fun forceUnlock(number: String) {
+        finishedNumbers.remove(number)
+        backoffUntil.remove(number)
+        consecutiveFailures.remove(number)
+        Log.d(TAG, "🔓 Número $number liberado forçadamente para rediscagem")
+    }
+    
+    /**
+     * Libera todos os números para serem discados novamente
+     * Usado quando a fila está vazia e o pool precisa de chamadas
+     */
+    fun forceUnlockAll() {
+        val count = finishedNumbers.size
+        finishedNumbers.clear()
+        backoffUntil.clear()
+        consecutiveFailures.clear()
+        Log.d(TAG, "🔓 Todos os $count números liberados forçadamente para rediscagem")
     }
 
     fun recordFailure(number: String) {

@@ -31,7 +31,8 @@ class QueueManager {
         attemptManager: AttemptManager,
         numberValidator: NumberValidator,
         activeCalls: ConcurrentHashMap<String, PowerDialerManager.ActiveCall>,
-        lastDialedNumber: String? = null // Último número discado para evitar sequência
+        lastDialedNumber: String? = null, // Último número discado para evitar sequência
+        allowFinished: Boolean = false // Permite reutilizar números marcados como finalizados para manter pool cheio
     ): List<String> {
         val selected = mutableListOf<String>()
         if (max <= 0) return selected
@@ -48,34 +49,16 @@ class QueueManager {
                 val now = System.currentTimeMillis()
 
                 when {
-                    attemptManager.isFinished(rawNumber) -> {
+                    attemptManager.isFinished(rawNumber) && !allowFinished -> {
                         Log.d(TAG, "⏭️ [popAvailable] Pulando número finalizado: $rawNumber")
                     }
-                    // CORREÇÃO CRÍTICA: Evita discar mesmo número em sequência
-                    rawNumber == lastDialedNumber -> {
-                        Log.d(TAG, "⏭️ [popAvailable] Pulando número igual ao último discado (evita sequência): $rawNumber")
-                        campaign.shuffledNumbers.add(candidate) // Recoloca no final da fila
-                    }
-                    numberValidator.isNumberCurrentlyDialing(rawNumber, activeCalls) -> {
-                        Log.d(TAG, "⏭️ [popAvailable] Pulando número já em DIALING/RINGING: $rawNumber")
-                        campaign.shuffledNumbers.add(candidate)
-                    }
-                    // CORREÇÃO: Permite até 2 chamadas por número
-                    numberValidator.countActiveCallsForNumber(rawNumber, activeCalls) >= 2 -> {
-                        Log.d(TAG, "⏭️ [popAvailable] Número $rawNumber já tem 2 chamadas ativas (máximo) - pulando")
-                        campaign.shuffledNumbers.add(candidate)
-                    }
                     attemptManager.isInBackoff(rawNumber) -> {
-                        // CORREÇÃO CRÍTICA: Se já selecionamos números suficientes, pula backoff
-                        // Caso contrário, tenta mesmo em backoff para manter pool cheio
-                        if (selected.size >= max) {
-                            Log.d(TAG, "⏭️ [popAvailable] Pulando número em backoff (já temos números suficientes): $rawNumber")
-                            campaign.shuffledNumbers.add(candidate)
-                        } else {
-                            // CORREÇÃO: Tenta mesmo em backoff se não há números suficientes
-                            Log.d(TAG, "⚠️ [popAvailable] Número em backoff mas tentando mesmo assim para manter pool: $rawNumber")
-                            selected.add(rawNumber)
-                        }
+                        // CORREÇÃO CRÍTICA: Pool maintenance chama popAvailableNumbers() somente quando
+                        // precisa preencher slots vazios. Se chegamos aqui, significa que o pool PRECISA
+                        // de chamadas. Portanto, SEMPRE ignora backoff para evitar pool travado.
+                        // O backoff serve para evitar spam, mas não deve impedir manutenção do pool.
+                        Log.d(TAG, "⚠️ [popAvailable] Ignorando backoff para $rawNumber (pool precisa de chamadas)")
+                        selected.add(rawNumber)
                     }
                     else -> {
                         selected.add(rawNumber)
@@ -92,11 +75,15 @@ class QueueManager {
     suspend fun reloadQueue(
         campaign: PowerDialerManager.Campaign,
         attemptManager: AttemptManager,
-        includeBackoff: Boolean = false
+        includeBackoff: Boolean = false,
+        includeFinished: Boolean = false
     ): Int {
         return shuffledNumbersMutex.withLock {
-            val toReload = campaign.numbers.filter { num -> 
-                if (includeBackoff) {
+            val toReload = campaign.numbers.filter { num ->
+                if (includeFinished) {
+                    // Recarrega todos, inclusive finalizados/backoff, para manter pool cheio
+                    true
+                } else if (includeBackoff) {
                     // CORREÇÃO CRÍTICA: Inclui números em backoff se solicitado (para manter pool cheio)
                     !attemptManager.isFinished(num)
                 } else {
