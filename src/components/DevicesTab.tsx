@@ -4,11 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -24,6 +24,7 @@ interface NumberList {
   name: string;
   numbers: string[];
   isActive: boolean;
+  ddiPrefix?: string | null; // CORREÇÃO: Renomeado para camelCase (compatível com PBXDashboard)
 }
 
 interface Device {
@@ -85,13 +86,21 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
     const list = lists.find(l => l.id === selectedList);
     if (!list) return;
 
+    // CORREÇÃO: Aplica DDI prefix aos números se configurado
+    const numbersWithDDI = list.ddiPrefix
+      ? list.numbers.map(num => `${list.ddiPrefix}${num}`)
+      : list.numbers;
+
+    console.log(`📱 Iniciando campanha: DDI=${list.ddiPrefix || 'nenhum'}, ${numbersWithDDI.length} números`);
+    console.log(`📱 Exemplo: ${list.numbers[0]} -> ${numbersWithDDI[0]}`);
+
     await sendCommandToDevice(selectedDevice, {
       command: 'start_campaign',
       data: {
         listId: selectedList,
         listName: list.name,
         list: {
-          numbers: list.numbers
+          numbers: numbersWithDDI // CORREÇÃO: Envia números JÁ COM DDI
         }
       }
     });
@@ -120,8 +129,8 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
         <h3 className="text-lg font-semibold text-foreground">
           Dispositivos Pareados ({devices.length})
         </h3>
-        <Button 
-          variant="outline" 
+        <Button
+          variant="outline"
           size="sm"
           onClick={() => onDeviceAction('all', 'refresh')}
         >
@@ -132,29 +141,27 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
 
       <div className="space-y-3">
         {devices.map((device) => (
-          <div 
-            key={device.id} 
+          <div
+            key={device.id}
             className="flex items-center justify-between p-4 border border-border rounded-lg bg-card/30 hover:bg-card/50 transition-colors"
           >
             <div className="flex items-center space-x-4">
-              <div className={`p-2 rounded-lg ${
-                device.status === 'online' 
-                  ? 'bg-success/10' 
-                  : 'bg-muted/20'
-              }`}>
-                <Smartphone className={`w-5 h-5 ${
-                  device.status === 'online' 
-                    ? 'text-success' 
-                    : 'text-muted-foreground'
-                }`} />
+              <div className={`p-2 rounded-lg ${device.status === 'online'
+                ? 'bg-success/10'
+                : 'bg-muted/20'
+                }`}>
+                <Smartphone className={`w-5 h-5 ${device.status === 'online'
+                  ? 'text-success'
+                  : 'text-muted-foreground'
+                  }`} />
               </div>
-              
+
               <div className="flex-1">
                 <div className="flex items-center space-x-2 mb-1">
                   <h4 className="font-medium text-foreground">{device.name}</h4>
-                  <Badge 
+                  <Badge
                     variant={device.status === 'online' ? 'default' : 'secondary'}
-                    className={device.status === 'online' 
+                    className={device.status === 'online'
                       ? 'bg-success/20 text-success-foreground border-success/30'
                       : undefined
                     }
@@ -169,17 +176,17 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
                     </div>
                   </Badge>
                 </div>
-                
+
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm text-muted-foreground">
-                    Pareado {formatDistanceToNow(new Date(device.pairedAt), { 
+                    Pareado {formatDistanceToNow(new Date(device.pairedAt), {
                       addSuffix: true
                     })}
                   </p>
-                  
+
                   {device.lastSeen && device.status === 'offline' && (
                     <p className="text-xs text-muted-foreground">
-                      Visto pela última vez {formatDistanceToNow(new Date(device.lastSeen), { 
+                      Visto pela última vez {formatDistanceToNow(new Date(device.lastSeen), {
                         addSuffix: true
                       })}
                     </p>
@@ -197,7 +204,7 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
               <DropdownMenuContent align="end">
                 {device.status === 'online' && (
                   <>
-                    <DropdownMenuItem 
+                    <DropdownMenuItem
                       onClick={() => {
                         setSelectedDevice(device.id);
                         setIsCallDialogOpen(true);
@@ -206,7 +213,7 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
                       <Phone className="w-4 h-4 mr-2" />
                       Fazer Chamada
                     </DropdownMenuItem>
-                    <DropdownMenuItem 
+                    <DropdownMenuItem
                       onClick={() => {
                         setSelectedDevice(device.id);
                         setIsCampaignDialogOpen(true);
@@ -219,7 +226,7 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
                         <span className="ml-2 text-xs text-muted-foreground">(sem listas ativas)</span>
                       )}
                     </DropdownMenuItem>
-                    <DropdownMenuItem 
+                    <DropdownMenuItem
                       onClick={() => {
                         sendCommandToDevice(device.id, {
                           command: 'stop_campaign'
@@ -231,25 +238,25 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
                     </DropdownMenuItem>
                   </>
                 )}
-                
+
                 {device.status === 'offline' && (
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     onClick={() => onGenerateQR && onGenerateQR()}
                   >
                     <QrCode className="w-4 h-4 mr-2" />
                     Gerar QR para Reativar
                   </DropdownMenuItem>
                 )}
-                
-                <DropdownMenuItem 
+
+                <DropdownMenuItem
                   onClick={() => onDeviceAction(device.id, 'refresh')}
                 >
                   <RefreshCw className="w-4 h-4 mr-2" />
                   Atualizar Status
                 </DropdownMenuItem>
-                
+
                 {device.status === 'offline' ? (
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     onClick={() => onDeviceAction(device.id, 'delete')}
                     className="text-danger"
                   >
@@ -257,7 +264,7 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
                     Excluir Permanentemente
                   </DropdownMenuItem>
                 ) : (
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     onClick={() => onDeviceAction(device.id, 'unpair')}
                     className="text-danger"
                   >
@@ -322,13 +329,12 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
               <Label>Selecionar Lista Ativa</Label>
               <div className="space-y-2 mt-2">
                 {activeLists.map((list) => (
-                  <div 
+                  <div
                     key={list.id}
-                    className={`p-3 border rounded-lg cursor-pointer transition-colors ${
-                      selectedList === list.id 
-                        ? 'border-primary bg-primary/5' 
-                        : 'border-border hover:bg-muted/50'
-                    }`}
+                    className={`p-3 border rounded-lg cursor-pointer transition-colors ${selectedList === list.id
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:bg-muted/50'
+                      }`}
                     onClick={() => setSelectedList(list.id)}
                   >
                     <div className="flex items-center justify-between">
@@ -356,8 +362,8 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
               }}>
                 Cancelar
               </Button>
-              <Button 
-                onClick={handleStartCampaign} 
+              <Button
+                onClick={handleStartCampaign}
                 disabled={!selectedList}
               >
                 <PhoneCall className="w-4 h-4 mr-2" />
