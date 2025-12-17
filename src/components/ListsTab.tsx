@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { Users, Plus, MoreVertical, Play, Pause, Trash2, Edit, FileText } from 'lucide-react';
+import { Users, Plus, MoreVertical, Play, Pause, Trash2, Edit, FileText, Users2, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -24,8 +24,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-// DDI prefixes options
+// DDI prefixes options (Códigos de Seleção de Prestadora - CSP)
 const DDI_PREFIXES = [
+  { value: '0014', label: '0014 - Brasil Telecom' },
   { value: '0015', label: '0015 - Telefônica' },
   { value: '0021', label: '0021 - Embratel' },
   { value: '0031', label: '0031 - Oi' },
@@ -41,12 +42,19 @@ interface NumberList {
   ddiPrefix?: string | null;
 }
 
+interface Device {
+  id: string;
+  name: string;
+  status: 'online' | 'offline' | 'unpaired';
+}
+
 interface ListsTabProps {
   lists: NumberList[];
+  devices?: Device[];
   onListAction: (listId: string, action: string, data?: any) => void;
 }
 
-export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
+export const ListsTab: React.FC<ListsTabProps> = ({ lists, devices = [], onListAction }) => {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isCampaignDialogOpen, setIsCampaignDialogOpen] = useState(false);
@@ -56,6 +64,9 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
   const [newListNumbers, setNewListNumbers] = useState('');
   const [newListDDI, setNewListDDI] = useState('');
   const [editingList, setEditingList] = useState<NumberList | null>(null);
+
+  // Filtrar apenas dispositivos online
+  const onlineDevices = devices.filter(d => d.status === 'online');
 
   const activeLists = lists.filter(list => list.isActive);
   const inactiveLists = lists.filter(list => !list.isActive);
@@ -95,11 +106,31 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
     setIsCampaignDialogOpen(true);
   };
 
+  // NOVO: Iniciar campanha em TODOS os dispositivos online
+  const handleStartCampaignAllDevices = (listId: string) => {
+    const list = lists.find(l => l.id === listId);
+    if (!list) return;
+
+    if (onlineDevices.length === 0) {
+      return; // Sem dispositivos online
+    }
+
+    const deviceIds = onlineDevices.map(d => d.id);
+    const ddiToUse = list.ddiPrefix;
+
+    // Chama a ação com todos os IDs de dispositivos
+    onListAction(listId, 'call', {
+      ddiPrefix: ddiToUse,
+      deviceIds: deviceIds,
+      shuffle: true // Embaralhar por padrão
+    });
+  };
+
   const handleConfirmCampaign = () => {
     if (!selectedDDI || !selectedListId) return;
 
     onListAction(selectedListId, 'call', { ddiPrefix: selectedDDI });
-    
+
     setSelectedListId('');
     setSelectedDDI('');
     setIsCampaignDialogOpen(false);
@@ -145,7 +176,7 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
         <p className="text-muted-foreground mb-6">
           Crie listas de números para facilitar o gerenciamento das chamadas
         </p>
-        
+
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button className="bg-primary hover:bg-primary/90">
@@ -217,7 +248,7 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
         <h3 className="text-lg font-semibold text-foreground">
           Listas de Números ({lists.length})
         </h3>
-        
+
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm">
@@ -383,8 +414,8 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
 
           <div className="space-y-3">
             {activeLists.map((list) => (
-              <div 
-                key={list.id} 
+              <div
+                key={list.id}
                 className="border border-success/30 bg-success/5 rounded-lg p-4"
               >
                 <div className="flex items-center justify-between mb-3">
@@ -395,9 +426,9 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
                     <div>
                       <h5 className="font-medium text-foreground">{list.name}</h5>
                       <p className="text-sm text-muted-foreground">
-                        {list.numbers.length} números • Criada {formatDistanceToNow(new Date(list.createdAt), { 
-                          addSuffix: true, 
-                          locale: ptBR 
+                        {list.numbers.length} números • Criada {formatDistanceToNow(new Date(list.createdAt), {
+                          addSuffix: true,
+                          locale: ptBR
                         })}
                         {list.ddiPrefix && ` • DDI: ${list.ddiPrefix}`}
                       </p>
@@ -408,7 +439,7 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
                     <Badge className="bg-success/20 text-success-foreground border-success/30">
                       Ativa
                     </Badge>
-                    
+
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="sm">
@@ -416,19 +447,19 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="bg-background border shadow-md">
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => handleStartCampaign(list.id)}
                         >
                           <Play className="w-4 h-4 mr-2" />
                           Iniciar Chamadas
                         </DropdownMenuItem>
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => handleEditList(list)}
                         >
                           <Edit className="w-4 h-4 mr-2" />
                           Editar
                         </DropdownMenuItem>
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => onListAction(list.id, 'deactivate')}
                         >
                           <Pause className="w-4 h-4 mr-2" />
@@ -470,8 +501,8 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
 
           <div className="space-y-3">
             {inactiveLists.map((list) => (
-              <div 
-                key={list.id} 
+              <div
+                key={list.id}
                 className="border border-border rounded-lg p-4 bg-muted/20"
               >
                 <div className="flex items-center justify-between mb-3">
@@ -482,9 +513,9 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
                     <div>
                       <h5 className="font-medium text-foreground">{list.name}</h5>
                       <p className="text-sm text-muted-foreground">
-                        {list.numbers.length} números • Criada {formatDistanceToNow(new Date(list.createdAt), { 
-                          addSuffix: true, 
-                          locale: ptBR 
+                        {list.numbers.length} números • Criada {formatDistanceToNow(new Date(list.createdAt), {
+                          addSuffix: true,
+                          locale: ptBR
                         })}
                         {list.ddiPrefix && ` • DDI: ${list.ddiPrefix}`}
                       </p>
@@ -495,7 +526,7 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
                     <Badge variant="secondary">
                       Inativa
                     </Badge>
-                    
+
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="sm">
@@ -503,19 +534,19 @@ export const ListsTab: React.FC<ListsTabProps> = ({ lists, onListAction }) => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="bg-background border shadow-md">
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => onListAction(list.id, 'activate')}
                         >
                           <Play className="w-4 h-4 mr-2" />
                           Ativar
                         </DropdownMenuItem>
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => handleEditList(list)}
                         >
                           <Edit className="w-4 h-4 mr-2" />
                           Editar
                         </DropdownMenuItem>
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => onListAction(list.id, 'delete')}
                           className="text-danger"
                         >

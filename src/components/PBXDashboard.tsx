@@ -22,7 +22,7 @@ const PBXDashboard = () => {
   const { user, signOut } = useAuth();
   const { toast } = useToast();
   const cleanupDoneRef = useRef<Set<string>>(new Set());
-  
+
   const {
     devices,
     calls,
@@ -35,6 +35,7 @@ const PBXDashboard = () => {
     addCall,
     updateCallStatus,
     deleteCall,
+    deleteAllEndedCalls,
     addNumberList,
     updateNumberList,
     toggleListStatus,
@@ -60,7 +61,7 @@ const PBXDashboard = () => {
         // Usar a função do banco para marcar dispositivos inativos
         const { data, error } = await supabase.rpc('mark_inactive_devices_offline')
         if (error) throw error
-        
+
         // Recarregar dispositivos para refletir mudanças
         await refetch()
       } catch (error) {
@@ -79,10 +80,10 @@ const PBXDashboard = () => {
 
   const generateQRCode = async () => {
     if (!user) return;
-    
+
     const sessionId = Date.now().toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
-    
+
     try {
       // Salvar sessão no banco de dados
       const { error } = await supabase
@@ -93,7 +94,7 @@ const PBXDashboard = () => {
           expires_at: expiresAt.toISOString(),
           used: false
         });
-        
+
       if (error) {
         console.error('Erro ao criar sessão QR:', error);
         toast({
@@ -103,15 +104,15 @@ const PBXDashboard = () => {
         });
         return;
       }
-      
+
       const baseUrl = window.location.origin;
       const newQRCode = `${baseUrl}/mobile?session=${sessionId}&user=${user.id}&expires=${expiresAt.getTime()}`;
       const newSessionLink = `${baseUrl}/mobile?session=${sessionId}`;
-      
+
       console.log('QR Code gerado e salvo:', newQRCode);
       setQrCode(newQRCode);
       setSessionLink(newSessionLink);
-      
+
       toast({
         title: "QR Code Gerado",
         description: "Escaneie o código com seu dispositivo móvel",
@@ -140,7 +141,7 @@ const PBXDashboard = () => {
   const sendCommandToDevice = async (deviceId: string, command: string, data: any) => {
     try {
       const channel = supabase.channel('device-commands');
-      
+
       await channel.send({
         type: 'broadcast',
         event: 'command',
@@ -202,30 +203,20 @@ const PBXDashboard = () => {
           // Hide all ended calls that are not already hidden
           const endedCallsToHide = calls.filter(c => c.status === 'ended' && !c.hidden);
           console.log(`Ocultando ${endedCallsToHide.length} chamadas`);
-          
+
           for (const endedCall of endedCallsToHide) {
             await updateCallStatus(endedCall.id, undefined, undefined, { hidden: true });
           }
-          
-          toast({ 
-            title: "Histórico ocultado", 
-            description: `${endedCallsToHide.length} chamadas foram ocultadas` 
+
+          toast({
+            title: "Histórico ocultado",
+            description: `${endedCallsToHide.length} chamadas foram ocultadas`
           });
           return;
-          
+
         case 'delete-all':
-          // Delete all ended calls (visible and hidden)
-          const allEndedCalls = calls.filter(c => c.status === 'ended');
-          console.log(`Excluindo ${allEndedCalls.length} chamadas`);
-          
-          for (const endedCall of allEndedCalls) {
-            await deleteCall(endedCall.id);
-          }
-          
-          toast({ 
-            title: "Histórico apagado", 
-            description: `${allEndedCalls.length} chamadas foram excluídas permanentemente` 
-          });
+          // CORREÇÃO: Usa função de exclusão em massa mais eficiente
+          await deleteAllEndedCalls();
           return;
       }
     }
@@ -234,47 +225,47 @@ const PBXDashboard = () => {
     if (callId === 'all' && action === 'end') {
       const now = Date.now();
       const fiveMinutesAgo = now - (5 * 60 * 1000); // 5 minutos
-      
+
       // Filtra apenas chamadas realmente ativas (não encerradas E criadas recentemente)
       // Chamadas muito antigas provavelmente já foram encerradas mas não atualizaram o status
       const activeCalls = calls.filter(c => {
         if (c.status === 'ended') return false;
-        
+
         const callStartTime = new Date(c.start_time).getTime();
         const callAge = now - callStartTime;
-        
+
         // Se a chamada está "ringing" há mais de 5 minutos, provavelmente já foi encerrada
         if (c.status === 'ringing' && callAge > fiveMinutesAgo) {
           return false;
         }
-        
+
         // Se a chamada está "answered" há mais de 2 horas, provavelmente já foi encerrada
         if (c.status === 'answered' && callAge > (2 * 60 * 60 * 1000)) {
           return false;
         }
-        
+
         return true;
       });
-      
+
       console.log(`Encerrando ${activeCalls.length} chamadas ativas (filtradas de ${calls.filter(c => c.status !== 'ended').length} total)`);
-      
+
       if (activeCalls.length === 0) {
         // Se havia chamadas mas foram filtradas, atualiza o status delas para 'ended'
         const staleCalls = calls.filter(c => {
           if (c.status === 'ended') return false;
           const callStartTime = new Date(c.start_time).getTime();
           const callAge = now - callStartTime;
-          return (c.status === 'ringing' && callAge > fiveMinutesAgo) || 
-                 (c.status === 'answered' && callAge > (2 * 60 * 60 * 1000));
+          return (c.status === 'ringing' && callAge > fiveMinutesAgo) ||
+            (c.status === 'answered' && callAge > (2 * 60 * 60 * 1000));
         });
-        
+
         if (staleCalls.length > 0) {
           // Atualiza chamadas antigas para 'ended' sem tentar encerrar no dispositivo
           for (const staleCall of staleCalls) {
             const duration = Math.floor((now - new Date(staleCall.start_time).getTime()) / 1000);
             await updateCallStatus(staleCall.id, 'ended', duration);
           }
-          
+
           toast({
             title: "Chamadas antigas atualizadas",
             description: `${staleCalls.length} chamada(s) antiga(s) foram marcadas como encerradas`
@@ -288,41 +279,41 @@ const PBXDashboard = () => {
         }
         return;
       }
-      
+
       let successCount = 0;
       let errorCount = 0;
       let skippedCount = 0;
-      
+
       for (const activeCall of activeCalls) {
         try {
           const callStartTime = new Date(activeCall.start_time).getTime();
           const callAge = now - callStartTime;
-          
+
           // Pula chamadas muito antigas (já devem ter sido encerradas)
           if ((activeCall.status === 'ringing' && callAge > fiveMinutesAgo) ||
-              (activeCall.status === 'answered' && callAge > (2 * 60 * 60 * 1000))) {
+            (activeCall.status === 'answered' && callAge > (2 * 60 * 60 * 1000))) {
             skippedCount++;
             // Marca como encerrada sem tentar encerrar no dispositivo
             const duration = Math.floor(callAge / 1000);
             await updateCallStatus(activeCall.id, 'ended', duration);
             continue;
           }
-          
+
           const duration = Math.floor(callAge / 1000);
           await updateCallStatus(activeCall.id, 'ended', duration);
-          
+
           // Send command to device to end call
           if (activeCall.device_id) {
             await sendCommandToDevice(activeCall.device_id, 'end_call', { callId: activeCall.id });
           }
-          
+
           successCount++;
         } catch (error) {
           console.error(`Erro ao encerrar chamada ${activeCall.id}:`, error);
           errorCount++;
         }
       }
-      
+
       let message = '';
       if (successCount > 0) {
         message = `${successCount} chamada(s) encerrada(s)`;
@@ -333,7 +324,7 @@ const PBXDashboard = () => {
       if (errorCount > 0) {
         message += message ? `, ${errorCount} erro(s)` : `${errorCount} erro(s)`;
       }
-      
+
       toast({
         title: successCount > 0 ? "Chamadas processadas" : "Chamadas atualizadas",
         description: message || "Nenhuma chamada processada",
@@ -343,7 +334,7 @@ const PBXDashboard = () => {
     }
 
     const call = calls.find(c => c.id === callId);
-    
+
     switch (action) {
       case 'new':
         setShowNewCallDialog(true);
@@ -423,9 +414,9 @@ const PBXDashboard = () => {
   // New call and conference handlers
   const handleMakeCall = async (number: string, deviceId?: string) => {
     await addCall(number, deviceId);
-    toast({ 
-      title: "Chamada iniciada", 
-      description: `Ligando para ${number}` 
+    toast({
+      title: "Chamada iniciada",
+      description: `Ligando para ${number}`
     });
   };
 
@@ -461,6 +452,45 @@ const PBXDashboard = () => {
     });
   };
 
+  // NOVO: Encerrar todas as chamadas de um dispositivo específico
+  const handleStopCampaign = async (deviceId: string) => {
+    const now = Date.now();
+
+    // Encontra todas as chamadas ativas deste dispositivo
+    const deviceCalls = calls.filter(c =>
+      c.device_id === deviceId &&
+      c.status !== 'ended'
+    );
+
+    if (deviceCalls.length === 0) {
+      toast({
+        title: "Campanha encerrada",
+        description: "Nenhuma chamada ativa encontrada para este dispositivo"
+      });
+      return;
+    }
+
+    // Marca todas as chamadas como encerradas
+    // CORREÇÃO: Só atribui duração real para chamadas que foram ATENDIDAS
+    // Chamadas que estavam apenas discando/tocando recebem duração 0
+    for (const call of deviceCalls) {
+      let duration = 0;
+
+      // Só calcula duração se a chamada foi realmente atendida
+      if (call.status === 'answered') {
+        duration = Math.floor((now - new Date(call.start_time).getTime()) / 1000);
+      }
+      // Chamadas em 'dialing', 'ringing', 'queued' etc recebem duração 0
+
+      await updateCallStatus(call.id, 'ended', duration);
+    }
+
+    toast({
+      title: "Campanha encerrada",
+      description: `${deviceCalls.length} chamada(s) foram encerradas`
+    });
+  };
+
   const handleListAction = async (listId: string, action: string, data?: any) => {
     switch (action) {
       case 'create':
@@ -477,19 +507,19 @@ const PBXDashboard = () => {
         // Se deviceIds foi fornecido, usar sistema de campanha completo
         if (data?.deviceIds && Array.isArray(data.deviceIds)) {
           await handleStartCampaign(
-            listId, 
-            data.deviceIds, 
+            listId,
+            data.deviceIds,
             data.shuffle !== undefined ? data.shuffle : true
           );
           return;
         }
-        
+
         // Fallback: criar chamadas sem device_id (comportamento antigo)
         const list = lists.find(l => l.id === listId);
         if (!list) return;
-        
+
         const ddiToUse = data?.ddiPrefix || list.ddi_prefix;
-        
+
         if (ddiToUse) {
           toast({
             title: "Iniciando campanha",
@@ -505,10 +535,10 @@ const PBXDashboard = () => {
             }
           }
         } else {
-          toast({ 
-            title: "Erro", 
+          toast({
+            title: "Erro",
             description: "Prefixo DDI não configurado para esta lista",
-            variant: "destructive" 
+            variant: "destructive"
           });
         }
         break;
@@ -529,7 +559,7 @@ const PBXDashboard = () => {
   // CORREÇÃO: Filtros adicionais para garantir estado real dos dispositivos
   const now = Date.now()
   const fiveMinutesAgo = now - (5 * 60 * 1000)
-  
+
   const formattedDevices = devices
     .filter(device => {
       // 1. Remove dispositivos 'unpaired'
@@ -537,7 +567,7 @@ const PBXDashboard = () => {
         console.log(`🗑️ Removendo dispositivo 'unpaired': ${device.name} (${device.id})`)
         return false
       }
-      
+
       // 2. Remove dispositivos 'online' inativos (sem heartbeat há mais de 5 minutos)
       if (device.status === 'online') {
         if (!device.last_seen) {
@@ -551,7 +581,7 @@ const PBXDashboard = () => {
           return false // Não mostrar até ser marcado como 'offline' no banco
         }
       }
-      
+
       return true
     })
     .map(device => ({
@@ -566,29 +596,29 @@ const PBXDashboard = () => {
   // Verifica dispositivos com last_seen muito antigo e marca como offline
   useEffect(() => {
     if (!devices.length || loading) return;
-    
+
     const checkInactiveDevices = setInterval(() => {
       const now = Date.now();
       const fiveMinutesAgo = new Date(now - (5 * 60 * 1000)).toISOString(); // 5 minutos sem heartbeat
-      
+
       // Dispositivos online que não atualizaram last_seen há mais de 5 minutos
       const inactiveDevices = devices.filter(device => {
         if (device.status !== 'online') return false;
         if (!device.last_seen) return true; // Se não tem last_seen, considerar inativo
-        
+
         const lastSeenTime = new Date(device.last_seen).getTime();
         const timeSinceLastSeen = now - lastSeenTime;
-        
+
         // Se passou mais de 5 minutos sem atualização, considerar inativo
         return timeSinceLastSeen > (5 * 60 * 1000);
       });
-      
+
       // Marcar dispositivos inativos como offline
       if (inactiveDevices.length > 0) {
         console.log(`⚠️ Detectados ${inactiveDevices.length} dispositivos inativos (sem heartbeat há mais de 5 minutos)`)
         inactiveDevices.forEach(async (device) => {
           try {
-            await updateDeviceStatus(device.id, { 
+            await updateDeviceStatus(device.id, {
               status: 'offline',
               last_seen: device.last_seen || new Date().toISOString()
             });
@@ -599,52 +629,55 @@ const PBXDashboard = () => {
         });
       }
     }, 30000); // Verifica a cada 30 segundos
-    
+
     return () => clearInterval(checkInactiveDevices);
   }, [devices, loading, updateDeviceStatus]);
 
   // Clean up stale calls (calls that are probably already ended but status wasn't updated)
-  // Executa periodicamente para limpar chamadas antigas
+  // CORREÇÃO: Agora mais agressivo - qualquer chamada não-ended com mais de 10 minutos é encerrada
   useEffect(() => {
     if (!calls.length || loading) return;
-    
-    const cleanupInterval = setInterval(() => {
+
+    const cleanupInterval = setInterval(async () => {
       const now = Date.now();
-      const fiveMinutesAgo = now - (5 * 60 * 1000);
-      const twoHoursAgo = now - (2 * 60 * 60 * 1000);
-      
+      const tenMinutesInMs = 10 * 60 * 1000; // 10 minutos
+
       const staleCalls = calls.filter(c => {
         if (c.status === 'ended') return false;
         if (cleanupDoneRef.current.has(c.id)) return false; // Já foi processada
-        
+
         const callStartTime = new Date(c.start_time).getTime();
         const callAge = now - callStartTime;
-        
-        // Chamadas "ringing" há mais de 5 minutos provavelmente já foram encerradas
-        if (c.status === 'ringing' && callAge > fiveMinutesAgo) {
+
+        // CORREÇÃO: Qualquer chamada não-ended com mais de 10 minutos é considerada órfã
+        // Isso inclui ringing, answered, dialing, queued, etc.
+        if (callAge > tenMinutesInMs) {
+          console.log(`🧹 Chamada órfã detectada: ${c.number} (status: ${c.status}, idade: ${Math.floor(callAge / 60000)} min)`);
           return true;
         }
-        
-        // Chamadas "answered" há mais de 2 horas provavelmente já foram encerradas
-        if (c.status === 'answered' && callAge > twoHoursAgo) {
-          return true;
-        }
-        
+
         return false;
       });
-      
-      // Atualiza chamadas antigas em lote (sem mostrar toast para não poluir)
+
+      // Atualiza chamadas antigas em lote
       if (staleCalls.length > 0) {
-        staleCalls.forEach(async (staleCall) => {
+        console.log(`🧹 Limpando ${staleCalls.length} chamadas órfãs...`);
+
+        for (const staleCall of staleCalls) {
           cleanupDoneRef.current.add(staleCall.id);
           const duration = Math.floor((now - new Date(staleCall.start_time).getTime()) / 1000);
           await updateCallStatus(staleCall.id, 'ended', duration);
+        }
+
+        toast({
+          title: "Chamadas órfãs limpas",
+          description: `${staleCalls.length} chamada(s) antiga(s) foram marcadas como encerradas`
         });
       }
-    }, 10000); // Executa a cada 10 segundos
-    
+    }, 15000); // Executa a cada 15 segundos
+
     return () => clearInterval(cleanupInterval);
-  }, [calls.length, loading, updateCallStatus]);
+  }, [calls.length, loading, updateCallStatus, toast]);
 
   const formattedCalls = calls.map(call => {
     const device = devices.find(d => d.id === call.device_id);
@@ -696,7 +729,7 @@ const PBXDashboard = () => {
                     <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">Sistema de Controle</p>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center space-x-2 md:space-x-4">
                   <div className="hidden sm:flex items-center space-x-2">
                     <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-success animate-pulse' : 'bg-danger'}`} />
@@ -704,7 +737,7 @@ const PBXDashboard = () => {
                       {wsConnected ? 'Conectado' : 'Desconectado'}
                     </span>
                   </div>
-                  
+
                   <Badge variant={stats.serverStatus === 'online' ? 'default' : 'destructive'} className="text-xs">
                     <Server className="w-3 h-3 mr-1" />
                     {stats.serverStatus === 'online' ? 'Online' : 'Offline'}
@@ -732,10 +765,10 @@ const PBXDashboard = () => {
           {/* Main Content */}
           <main className="container mx-auto px-3 md:px-6 py-4 md:py-8">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-8">
-              
+
               {/* QR Code Section */}
               <div className="lg:col-span-1">
-                <QRCodeSection 
+                <QRCodeSection
                   qrCode={qrCode}
                   sessionLink={sessionLink}
                   onGenerateQR={generateQRCode}
@@ -767,20 +800,22 @@ const PBXDashboard = () => {
                       </TabsList>
 
                       <TabsContent value="devices" className="mt-0">
-                        <DevicesTab 
-                          devices={formattedDevices} 
-                          lists={formattedLists} 
+                        <DevicesTab
+                          devices={formattedDevices}
+                          lists={formattedLists}
                           onDeviceAction={handleDeviceAction}
                           onGenerateQR={refreshQRCode}
+                          onStartCampaignAll={(listId, deviceIds) => handleStartCampaign(listId, deviceIds, true)}
+                          onStopCampaign={handleStopCampaign}
                         />
                       </TabsContent>
-                      
+
                       <TabsContent value="calls" className="mt-0">
                         <CallsTab calls={formattedCalls} onCallAction={handleCallAction} />
                       </TabsContent>
-                      
+
                       <TabsContent value="lists" className="mt-0">
-                        <ListsTab lists={formattedLists} onListAction={handleListAction} />
+                        <ListsTab lists={formattedLists} devices={formattedDevices} onListAction={handleListAction} />
                       </TabsContent>
                     </Tabs>
                   </CardContent>

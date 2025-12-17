@@ -78,17 +78,17 @@ export const usePBXData = () => {
       }
       const devicesList = (data as unknown as Device[]) || []
       console.log(`📱 fetchDevices() encontrou ${devicesList.length} dispositivo(s) no banco (antes do filtro)`)
-      
+
       // Log detalhado de cada dispositivo encontrado
       devicesList.forEach((device, index) => {
         console.log(`  [${index + 1}] ${device.name} (${device.id}) - Status: ${device.status}, Pareado: ${device.paired_at || 'N/A'}`)
       })
-      
+
       // CORREÇÃO: Filtrar dispositivos 'unpaired' mas incluir dispositivos pareados recentemente
       // Mesmo se status for 'unpaired', incluir se foi pareado nos últimos 10 minutos (pode ser problema de sincronização)
       const now = Date.now();
       const tenMinutesAgo = now - (10 * 60 * 1000);
-      
+
       let filteredDevices = devicesList.filter(device => {
         // Se status é 'unpaired', verificar se foi pareado recentemente
         if (device.status === 'unpaired') {
@@ -111,30 +111,30 @@ export const usePBXData = () => {
         // Incluir todos os outros status (online, offline)
         return true;
       });
-      
+
       // Ordenar por paired_at mais recente primeiro (dispositivos pareados recentemente aparecem primeiro)
       filteredDevices.sort((a, b) => {
         const aPaired = a.paired_at ? new Date(a.paired_at).getTime() : 0;
         const bPaired = b.paired_at ? new Date(b.paired_at).getTime() : 0;
         return bPaired - aPaired; // Mais recente primeiro
       });
-      
+
       console.log(`📱 fetchDevices() após filtro unpaired: ${filteredDevices.length} dispositivo(s)`)
-      
+
       // Log detalhado dos dispositivos filtrados
       filteredDevices.forEach((device, index) => {
         console.log(`  ✅ [${index + 1}] ${device.name} (${device.id}) - Status: ${device.status || 'null'}, Pareado: ${device.paired_at || 'N/A'}`)
       })
-      
+
       // CORREÇÃO: Verificar dispositivos 'online' com last_seen antigo (> 5 minutos) e marcar como offline imediatamente
       // IMPORTANTE: Não marcar como offline se foi pareado recentemente (últimos 2 minutos)
       // Reutilizar 'now' já declarado acima
       const fiveMinutesAgo = now - (5 * 60 * 1000)
       const twoMinutesAgo = now - (2 * 60 * 1000) // Grace period para dispositivos recém-pareados
-      
+
       const inactiveOnlineDevices = filteredDevices.filter(device => {
         if (device.status !== 'online') return false
-        
+
         // Se foi pareado recentemente (últimos 2 minutos), não marcar como offline
         if (device.paired_at) {
           const pairedAtTime = new Date(device.paired_at).getTime()
@@ -143,16 +143,16 @@ export const usePBXData = () => {
             return false // Não marcar como inativo se foi pareado recentemente
           }
         }
-        
+
         if (!device.last_seen) {
           // Sem last_seen mas pareado há mais de 2 minutos = inativo
           return device.paired_at ? (now - new Date(device.paired_at).getTime()) > twoMinutesAgo : true
         }
-        
+
         const lastSeenTime = new Date(device.last_seen).getTime()
         return (now - lastSeenTime) > fiveMinutesAgo // Mais de 5 minutos sem heartbeat
       })
-      
+
       // Marcar dispositivos inativos como offline no banco
       if (inactiveOnlineDevices.length > 0) {
         console.log(`⚠️ fetchDevices() detectou ${inactiveOnlineDevices.length} dispositivo(s) 'online' inativo(s) (last_seen > 5 minutos)`)
@@ -160,7 +160,7 @@ export const usePBXData = () => {
           try {
             await supabase
               .from('devices' as any)
-              .update({ 
+              .update({
                 status: 'offline',
                 updated_at: new Date().toISOString()
               })
@@ -171,7 +171,7 @@ export const usePBXData = () => {
             console.error(`Erro ao marcar dispositivo ${device.id} como offline:`, error)
           }
         })
-        
+
         // Remover da lista local imediatamente
         filteredDevices = filteredDevices.map(device => {
           if (inactiveOnlineDevices.find(d => d.id === device.id)) {
@@ -180,13 +180,13 @@ export const usePBXData = () => {
           return device
         })
       }
-      
+
       // Log detalhado para debug
       if (devicesList.length !== filteredDevices.length) {
         const unpairedCount = devicesList.length - filteredDevices.length
         console.warn(`⚠️ fetchDevices() encontrou ${unpairedCount} dispositivo(s) 'unpaired' que foram filtrados`)
       }
-      
+
       console.log('📱 fetchDevices() retornou', filteredDevices.length, 'dispositivos (filtrados, sem unpaired e inativos corrigidos)')
       setDevices(filteredDevices)
     } catch (error: any) {
@@ -223,7 +223,7 @@ export const usePBXData = () => {
     try {
       // Busca apenas chamadas das últimas 24 horas para melhor performance
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-      
+
       const { data, error } = await supabase
         .from('calls' as any)
         .select('id, number, status, start_time, duration, user_id, device_id, hidden')
@@ -246,7 +246,7 @@ export const usePBXData = () => {
 
     try {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-      
+
       const { data, error } = await supabase
         .from('calls' as any)
         .select('id, number, status, start_time, duration, user_id, device_id, hidden')
@@ -303,7 +303,7 @@ export const usePBXData = () => {
       return []
     }
   }, [user])
-  
+
   // Calculate stats (memoized para evitar recalculações desnecessárias)
   // OTIMIZADO: Usa dados já filtrados para evitar filtros no cliente
   const calculateStats = useCallback(() => {
@@ -422,12 +422,12 @@ export const usePBXData = () => {
         .single()
 
       if (error) throw error
-      
+
       // If device_id provided, notify device about the call
       if (deviceId && data) {
         console.log(`Call ${(data as any).id} registered for device ${deviceId}`);
       }
-      
+
       await fetchCalls()
       return data
     } catch (error: any) {
@@ -443,11 +443,11 @@ export const usePBXData = () => {
   const updateCallStatus = async (callId: string, status?: 'answered' | 'ended', duration?: number, updates?: { hidden?: boolean }) => {
     try {
       const updateData: any = {}
-      
+
       if (status) updateData.status = status
-      if (duration !== undefined) updateData.duration = duration  
+      if (duration !== undefined) updateData.duration = duration
       if (updates?.hidden !== undefined) updateData.hidden = updates.hidden
-      
+
       updateData.updated_at = new Date().toISOString()
 
       const { error } = await supabase
@@ -456,7 +456,7 @@ export const usePBXData = () => {
         .eq('id', callId)
 
       if (error) throw error
-      
+
       console.log(`Call ${callId} updated:`, updateData);
       await fetchCalls()
     } catch (error: any) {
@@ -599,7 +599,7 @@ export const usePBXData = () => {
   const fetchDevicesRef = useRef(fetchDevices)
   const fetchCallsRef = useRef(fetchCalls)
   const fetchListsRef = useRef(fetchLists)
-  
+
   // Atualiza refs quando as funções mudam
   useEffect(() => {
     fetchDevicesRef.current = fetchDevices
@@ -626,7 +626,7 @@ export const usePBXData = () => {
 
     const devicesSubscription = supabase
       .channel(`devices_channel_${user.id}`) // Canais únicos por usuário para evitar conflitos
-      .on('postgres_changes', 
+      .on('postgres_changes',
         { event: '*', schema: 'public', table: 'devices', filter: `user_id=eq.${user.id}` },
         (payload: any) => {
           const newRecord = payload.new as any;
@@ -634,21 +634,21 @@ export const usePBXData = () => {
           const newStatus = newRecord?.status;
           const oldStatus = oldRecord?.status;
           const eventType = payload.eventType; // 'INSERT', 'UPDATE', 'DELETE'
-          console.log('📱 Subscription detectou mudança em devices:', { 
+          console.log('📱 Subscription detectou mudança em devices:', {
             eventType,
-            deviceId: newRecord?.id, 
-            oldStatus, 
+            deviceId: newRecord?.id,
+            oldStatus,
             newStatus,
             deviceName: newRecord?.name
           });
-          
+
           // Se dispositivo foi marcado como 'unpaired', remover imediatamente da lista local
           if (newStatus === 'unpaired') {
             console.log('🗑️ Dispositivo marcado como unpaired, removendo da lista local');
             setDevices(prev => prev.filter(d => d.id !== newRecord?.id));
             return; // Não precisa recarregar se foi despareado
           }
-          
+
           // CORREÇÃO: Se é um INSERT ou UPDATE para 'online', recarregar imediatamente
           // Isso garante que dispositivos recém-pareados apareçam no dashboard
           if (eventType === 'INSERT' || (eventType === 'UPDATE' && newStatus === 'online')) {
@@ -684,9 +684,24 @@ export const usePBXData = () => {
       .channel(`calls_channel_${user.id}`) // Canais únicos por usuário
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'calls', filter: `user_id=eq.${user.id}` },
-        () => debouncedFetchCalls()
+        (payload: any) => {
+          console.log('📞 Subscription detectou mudança em calls:', {
+            eventType: payload.eventType,
+            callId: payload.new?.id || payload.old?.id,
+            status: payload.new?.status,
+            number: payload.new?.number
+          });
+          // CORREÇÃO: Buscar imediatamente (sem debounce) para updates de status
+          if (payload.eventType === 'UPDATE') {
+            fetchCallsRef.current();
+          } else {
+            debouncedFetchCalls();
+          }
+        }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('📡 Subscription status calls:', status);
+      })
 
     const listsSubscription = supabase
       .channel(`lists_channel_${user.id}`) // Canais únicos por usuário
@@ -696,15 +711,20 @@ export const usePBXData = () => {
       )
       .subscribe()
 
-    // CORREÇÃO: Polling periódico como fallback para garantir que dispositivos apareçam mesmo se subscription falhar
-    // Polling a cada 2 segundos para detectar novos dispositivos pareados mais rapidamente
-    const pollingInterval = setInterval(() => {
-      console.log('🔄 Polling periódico: verificando novos dispositivos...');
+    // CORREÇÃO: Polling periódico para dispositivos E chamadas
+    // Devices: 3 segundos, Calls: 5 segundos
+    const devicesPollingInterval = setInterval(() => {
       fetchDevicesRef.current();
-    }, 2000); // 2 segundos - mais rápido para detectar pareamentos
+    }, 3000);
+
+    const callsPollingInterval = setInterval(() => {
+      console.log('🔄 Polling periódico: verificando chamadas...');
+      fetchCallsRef.current();
+    }, 5000); // 5 segundos para chamadas
 
     return () => {
-      clearInterval(pollingInterval);
+      clearInterval(devicesPollingInterval);
+      clearInterval(callsPollingInterval);
       devicesSubscription.unsubscribe()
       callsSubscription.unsubscribe()
       listsSubscription.unsubscribe()
@@ -724,7 +744,7 @@ export const usePBXData = () => {
       setLoading(true)
       await Promise.all([
         fetchDevices(),
-        fetchCalls(), 
+        fetchCalls(),
         fetchLists()
       ])
       setLoading(false)
@@ -732,7 +752,7 @@ export const usePBXData = () => {
     }
 
     loadData()
-    
+
     // Reset flag quando user muda
     return () => {
       hasLoadedRef.current = false
@@ -744,14 +764,13 @@ export const usePBXData = () => {
     calculateStats()
   }, [devices.length, calls.length, lists.length]) // Usa apenas tamanhos para evitar recriações constantes
 
-  // Delete call function
+  // Delete call function - CORREÇÃO: Removido filtro user_id, RLS do Supabase cuida da segurança
   const deleteCall = async (callId: string) => {
     try {
       const { error } = await supabase
         .from('calls' as any)
         .delete()
-        .eq('id', callId)
-        .eq('user_id', user?.id);
+        .eq('id', callId);
 
       if (error) throw error
 
@@ -763,7 +782,45 @@ export const usePBXData = () => {
       await fetchCalls();
     } catch (error: any) {
       toast({
-        title: "Erro ao excluir chamada", 
+        title: "Erro ao excluir chamada",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Delete all calls (ended + orphans) - exclusão em massa completa do histórico
+  const deleteAllEndedCalls = async () => {
+    if (!user) return;
+
+    try {
+      // Delete chamadas ended
+      const { error: error1 } = await supabase
+        .from('calls' as any)
+        .delete()
+        .eq('user_id', user.id)
+        .eq('status', 'ended');
+
+      // Delete chamadas órfãs (não-ended com mais de 10 minutos)
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const { error: error2 } = await supabase
+        .from('calls' as any)
+        .delete()
+        .eq('user_id', user.id)
+        .neq('status', 'ended')
+        .lt('start_time', tenMinutesAgo);
+
+      if (error1 || error2) throw error1 || error2;
+
+      toast({
+        title: "Histórico limpo!",
+        description: `Todas as chamadas foram removidas permanentemente`
+      });
+
+      await fetchCalls();
+    } catch (error: any) {
+      toast({
+        title: "Erro ao limpar histórico",
         description: error.message,
         variant: "destructive"
       });
@@ -782,6 +839,7 @@ export const usePBXData = () => {
     addCall,
     updateCallStatus,
     deleteCall,
+    deleteAllEndedCalls, // Nova função para limpar histórico
     addNumberList,
     updateNumberList,
     toggleListStatus,

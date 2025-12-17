@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Smartphone, Wifi, WifiOff, MoreVertical, Trash2, RefreshCw, Phone, PhoneCall, List, QrCode, Square } from 'lucide-react';
+import { Smartphone, Wifi, WifiOff, MoreVertical, Trash2, RefreshCw, Phone, PhoneCall, List, QrCode, Square, Users2, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -40,14 +40,21 @@ interface DevicesTabProps {
   lists: NumberList[];
   onDeviceAction: (deviceId: string, action: string) => void;
   onGenerateQR?: () => void;
+  onStartCampaignAll?: (listId: string, deviceIds: string[]) => void;
+  onStopCampaign?: (deviceId: string) => void;
 }
 
-export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDeviceAction, onGenerateQR }) => {
+export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDeviceAction, onGenerateQR, onStartCampaignAll, onStopCampaign }) => {
   const [callNumber, setCallNumber] = useState('');
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [selectedList, setSelectedList] = useState<string | null>(null);
   const [isCallDialogOpen, setIsCallDialogOpen] = useState(false);
   const [isCampaignDialogOpen, setIsCampaignDialogOpen] = useState(false);
+  const [isCampaignAllDialogOpen, setIsCampaignAllDialogOpen] = useState(false);
+  const [selectedListForAll, setSelectedListForAll] = useState<string | null>(null);
+
+  // Dispositivos online
+  const onlineDevices = devices.filter(d => d.status === 'online');
 
   const sendCommandToDevice = async (deviceId: string, command: any) => {
     try {
@@ -109,6 +116,20 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
     setIsCampaignDialogOpen(false);
   };
 
+  // NOVO: Iniciar campanha em TODOS os dispositivos online
+  const handleStartCampaignAll = () => {
+    if (!selectedListForAll || onlineDevices.length === 0) return;
+
+    const deviceIds = onlineDevices.map(d => d.id);
+
+    if (onStartCampaignAll) {
+      onStartCampaignAll(selectedListForAll, deviceIds);
+    }
+
+    setSelectedListForAll(null);
+    setIsCampaignAllDialogOpen(false);
+  };
+
   const activeLists = lists.filter(list => list.isActive);
 
   if (devices.length === 0) {
@@ -125,18 +146,32 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-lg font-semibold text-foreground">
           Dispositivos Pareados ({devices.length})
         </h3>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onDeviceAction('all', 'refresh')}
-        >
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Atualizar
-        </Button>
+        <div className="flex items-center space-x-2">
+          {/* Botão Iniciar Campanha em Todos - só aparece se há 2+ dispositivos online e listas ativas */}
+          {onlineDevices.length >= 2 && activeLists.length > 0 && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setIsCampaignAllDialogOpen(true)}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              <Users2 className="w-4 h-4 mr-2" />
+              Iniciar em Todos ({onlineDevices.length})
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onDeviceAction('all', 'refresh')}
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -228,9 +263,14 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => {
+                        // Envia comando para o dispositivo parar
                         sendCommandToDevice(device.id, {
                           command: 'stop_campaign'
                         });
+                        // Também encerra as chamadas no banco de dados
+                        if (onStopCampaign) {
+                          onStopCampaign(device.id);
+                        }
                       }}
                     >
                       <Square className="w-4 h-4 mr-2" />
@@ -368,6 +408,83 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
               >
                 <PhoneCall className="w-4 h-4 mr-2" />
                 Iniciar Campanha
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Campaign All Devices Dialog */}
+      <Dialog open={isCampaignAllDialogOpen} onOpenChange={setIsCampaignAllDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2">
+              <Users2 className="w-5 h-5 text-green-600" />
+              <span>Iniciar Campanha em Todos os Dispositivos</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+              <p className="text-sm text-green-800 dark:text-green-200">
+                <strong>{onlineDevices.length} dispositivos online</strong> receberão as chamadas distribuídas automaticamente.
+              </p>
+            </div>
+
+            <div>
+              <Label>Selecionar Lista para Discagem</Label>
+              <div className="space-y-2 mt-2 max-h-48 overflow-y-auto">
+                {activeLists.map((list) => (
+                  <div
+                    key={list.id}
+                    className={`p-3 border rounded-lg cursor-pointer transition-colors ${selectedListForAll === list.id
+                      ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                      : 'border-border hover:bg-muted/50'
+                      }`}
+                    onClick={() => setSelectedListForAll(list.id)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-medium">{list.name}</h4>
+                        <p className="text-sm text-muted-foreground">
+                          {list.numbers.length} números
+                          {list.ddiPrefix && ` • DDI: ${list.ddiPrefix}`}
+                        </p>
+                      </div>
+                      <List className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  </div>
+                ))}
+                {activeLists.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Nenhuma lista ativa disponível. Crie uma lista na aba "Listas".
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {selectedListForAll && (
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-sm text-muted-foreground">
+                  Os <strong>{lists.find(l => l.id === selectedListForAll)?.numbers.length || 0} números</strong> serão
+                  distribuídos entre os <strong>{onlineDevices.length} dispositivos</strong> automaticamente.
+                </p>
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => {
+                setIsCampaignAllDialogOpen(false);
+                setSelectedListForAll(null);
+              }}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleStartCampaignAll}
+                disabled={!selectedListForAll}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Iniciar em {onlineDevices.length} Dispositivos
               </Button>
             </div>
           </div>
