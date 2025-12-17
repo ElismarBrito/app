@@ -86,7 +86,14 @@ export function ModernDialer({
   }
 
   const handleEndAllCalls = () => {
-    activeCalls.forEach((call) => onEndCall(call.callId))
+    // CORREÇÃO: Se há campanha ativa, para a campanha completamente
+    // Isso evita que o sistema continue discando novos números após encerrar as chamadas
+    if (campaignProgress) {
+      onStopCampaign()
+    } else {
+      // Sem campanha ativa, apenas encerra as chamadas individualmente
+      activeCalls.forEach((call) => onEndCall(call.callId))
+    }
   }
 
   const handlePause = () => {
@@ -218,15 +225,14 @@ export function ModernDialer({
                           <p className="font-semibold text-gray-900">{call.number}</p>
                           <p className="text-xs text-gray-600 flex items-center gap-1.5 mt-0.5">
                             <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                call.state === "active"
+                              className={`w-1.5 h-1.5 rounded-full ${call.state === "active"
                                   ? "bg-green-500 animate-pulse"
                                   : call.state === "dialing"
                                     ? "bg-blue-500 animate-pulse"
                                     : call.state === "ringing"
                                       ? "bg-yellow-500 animate-pulse"
                                       : "bg-gray-400"
-                              }`}
+                                }`}
                             />
                             {call.state === "dialing"
                               ? "Discando..."
