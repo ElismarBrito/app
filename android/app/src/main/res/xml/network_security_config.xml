@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Base configuration with custom trust anchors -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <!-- Trust preinstalled CAs -->
+            <certificates src="system" />
+            <!-- Trust user added CAs -->
+            <certificates src="user" />
+            <!-- Trust our bundled GTS root certificate -->
+            <certificates src="@raw/gts_root_r1" />
+        </trust-anchors>
+    </base-config>
+    
+    <!-- Specific configuration for Supabase -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">supabase.co</domain>
+        <domain includeSubdomains="true">supabase.com</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+            <certificates src="@raw/gts_root_r1" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

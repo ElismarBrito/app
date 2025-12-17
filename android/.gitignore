@@ -1,0 +1,4 @@
+
+# Keystore properties (contains passwords)
+keystore.properties
+app-release-key.keystore

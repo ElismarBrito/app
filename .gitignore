@@ -16,4 +16,5 @@ android/app/src/main/assets/public/index.html
 .idea/deviceManager.xml
 
 # Documentos de análise temporários (apenas local, não para produção)
-docs/analysis-temp/
+docs/analysis-temp/android/java_pid21030.hprof
+*.hprof
