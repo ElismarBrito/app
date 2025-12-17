@@ -868,6 +868,18 @@ class PowerDialerManager(
             poolMaintenanceJob = null
             
             Log.d(TAG, "🛑 Campanha parada: ${campaign.sessionId}")
+            
+            // CORREÇÃO CRÍTICA: Encerrar TODAS as chamadas ativas via InCallService
+            // Isso garante que todas as chamadas no sistema Android sejam encerradas,
+            // não apenas as que estão mapeadas internamente no PowerDialerManager
+            try {
+                val inCallService = ServiceRegistry.getInCallService()
+                val endedCount = inCallService?.endAllCalls() ?: 0
+                Log.d(TAG, "📴 Encerradas $endedCount chamadas via InCallService")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Erro ao encerrar chamadas via InCallService: ${e.message}")
+            }
+            
             Log.d(TAG, "⏳ Aguardando conclusão das chamadas em progresso (máx 3s)...")
             
             // ===== OPÇÃO A: Aguardar conclusão natural + desconectar restos =====
