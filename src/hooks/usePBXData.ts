@@ -216,21 +216,22 @@ export const usePBXData = () => {
     }
   }, [user])
 
-  // Fetch calls - otimizado para buscar apenas chamadas recentes
+  // Fetch calls - Limite fixo para evitar loops infinitos de dependência
+  // 100 é suficiente: 12 dispositivos × 6 chamadas = 72 máximo
   const fetchCalls = useCallback(async () => {
     if (!user) return
 
     try {
-      // Busca apenas chamadas das últimas 24 horas para melhor performance
+      // Busca chamadas das últimas 24 horas
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
       const { data, error } = await supabase
         .from('calls' as any)
         .select('id, number, status, start_time, duration, user_id, device_id, hidden')
         .eq('user_id', user.id)
-        .gte('start_time', oneDayAgo) // Apenas últimas 24h
+        .gte('start_time', oneDayAgo) // Últimas 24h
         .order('start_time', { ascending: false })
-        .limit(100) // Aumentado para 100 mas com filtro de data
+        .limit(100) // Suficiente para 12 dispositivos × 6 chamadas + margem
 
       if (error) throw error
       setCalls((data as unknown as Call[]) || [])
@@ -238,7 +239,7 @@ export const usePBXData = () => {
       console.log('Calls table not ready yet, using empty array')
       setCalls([])
     }
-  }, [user])
+  }, [user]) // Removido devices das dependências para evitar loop infinito
 
   // Fetch active calls - OTIMIZADO: usa índice composto idx_calls_user_status
   const fetchActiveCalls = useCallback(async (): Promise<Call[]> => {
@@ -789,32 +790,30 @@ export const usePBXData = () => {
     }
   };
 
-  // Delete all calls (ended + orphans) - exclusão em massa completa do histórico
+  // Delete all calls (ended + orphans + queued + ringing) - exclusão em massa completa do histórico
   const deleteAllEndedCalls = async () => {
     if (!user) return;
 
     try {
-      // Delete chamadas ended
-      const { error: error1 } = await supabase
+      // Primeiro, contar quantas chamadas serão deletadas
+      const { count, error: countError } = await supabase
+        .from('calls' as any)
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      const totalToDelete = count || 0;
+
+      // Delete TODAS as chamadas do usuário (não apenas ended)
+      const { error } = await supabase
         .from('calls' as any)
         .delete()
-        .eq('user_id', user.id)
-        .eq('status', 'ended');
+        .eq('user_id', user.id);
 
-      // Delete chamadas órfãs (não-ended com mais de 10 minutos)
-      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-      const { error: error2 } = await supabase
-        .from('calls' as any)
-        .delete()
-        .eq('user_id', user.id)
-        .neq('status', 'ended')
-        .lt('start_time', tenMinutesAgo);
-
-      if (error1 || error2) throw error1 || error2;
+      if (error) throw error;
 
       toast({
         title: "Histórico limpo!",
-        description: `Todas as chamadas foram removidas permanentemente`
+        description: `${totalToDelete} chamada(s) foram removidas permanentemente`
       });
 
       await fetchCalls();

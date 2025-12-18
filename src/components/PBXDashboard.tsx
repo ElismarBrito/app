@@ -195,7 +195,7 @@ const PBXDashboard = () => {
     }
   };
 
-  const handleCallAction = async (callId: string, action: string) => {
+  const handleCallAction = async (callId: string, action: string, data?: any) => {
     // Handle bulk actions first
     if (action === 'bulk') {
       switch (callId) {
@@ -217,6 +217,31 @@ const PBXDashboard = () => {
         case 'delete-all':
           // CORREÇÃO: Usa função de exclusão em massa mais eficiente
           await deleteAllEndedCalls();
+          return;
+
+        case 'create-list-from-successful':
+          // Criar nova lista com os números das chamadas bem-sucedidas
+          if (data?.numbers && data.numbers.length > 0) {
+            const listName = `Chamadas Bem-Sucedidas ${new Date().toLocaleDateString('pt-BR')}`;
+            await addNumberList(listName, data.numbers);
+            toast({
+              title: "Lista criada!",
+              description: `Lista "${listName}" criada com ${data.numbers.length} números`
+            });
+          }
+          return;
+
+        case 'delete-successful':
+          // Excluir chamadas bem-sucedidas específicas
+          if (data?.callIds && data.callIds.length > 0) {
+            for (const id of data.callIds) {
+              await deleteCall(id);
+            }
+            toast({
+              title: "Histórico excluído",
+              description: `${data.callIds.length} chamadas bem-sucedidas foram removidas`
+            });
+          }
           return;
       }
     }

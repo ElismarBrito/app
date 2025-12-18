@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PhoneCall, Phone, PhoneOff, Clock, MoreVertical, Play, Pause, Square, Smartphone, Eye, EyeOff, Trash2, AlertTriangle, CheckCircle2, Timer } from 'lucide-react';
+import { PhoneCall, Phone, PhoneOff, Clock, MoreVertical, Play, Pause, Square, Smartphone, Eye, EyeOff, Trash2, AlertTriangle, CheckCircle2, Timer, ListPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -41,14 +41,18 @@ export const CallsTab: React.FC<CallsTabProps> = ({ calls, onCallAction }) => {
   const [showHidden, setShowHidden] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // CORREÇÃO: Filtra apenas chamadas REALMENTE ativas (em curso ou atendidas)
-  // Exclui: ended, queued, e chamadas antigas
+  // Filtra chamadas com estado REAL (que estão realmente acontecendo no telefone)
+  // NÃO inclui 'queued' - apenas chamadas que estão discando, tocando, atendidas ou em espera
   const now = Date.now();
   const tenMinutesInMs = 10 * 60 * 1000; // 10 minutos
 
   const activesCalls = calls.filter(call => {
-    // Só mostra chamadas com status ringing, dialing ou answered
-    const isActiveStatus = ['ringing', 'dialing', 'answered'].includes(call.status);
+    // Mostra apenas chamadas com estado real no telefone:
+    // - dialing: discando
+    // - ringing: tocando
+    // - answered: atendida/ativo
+    // - held: em espera
+    const isActiveStatus = ['ringing', 'dialing', 'answered', 'held'].includes(call.status);
     if (!isActiveStatus) return false;
 
     // Exclui chamadas muito antigas (mais de 10 min) - provavelmente órfãs
@@ -130,11 +134,18 @@ export const CallsTab: React.FC<CallsTabProps> = ({ calls, onCallAction }) => {
             Na Fila
           </Badge>
         );
+      case 'held':
+        return (
+          <Badge variant="secondary" className="bg-orange-500/20 text-orange-600 border-orange-500/30">
+            <Pause className="w-3 h-3 mr-1" />
+            Em Espera
+          </Badge>
+        );
       case 'answered':
         return (
           <Badge variant="default" className="bg-success/20 text-success-foreground border-success/30">
             <Phone className="w-3 h-3 mr-1" />
-            Atendida
+            Ativo
           </Badge>
         );
       case 'ended':
@@ -313,10 +324,12 @@ export const CallsTab: React.FC<CallsTabProps> = ({ calls, onCallAction }) => {
                 Chamadas Bem-Sucedidas ({successfulCalls.length})
               </h3>
             </div>
-            <Badge className="bg-green-500/20 text-green-600 border-green-500/30">
-              <Timer className="w-3 h-3 mr-1" />
-              Duração {'>'} 1 min
-            </Badge>
+            <div className="flex items-center space-x-2">
+              <Badge className="bg-green-500/20 text-green-600 border-green-500/30">
+                <Timer className="w-3 h-3 mr-1" />
+                Duração {'>'} 1 min
+              </Badge>
+            </div>
           </div>
 
           <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -363,6 +376,32 @@ export const CallsTab: React.FC<CallsTabProps> = ({ calls, onCallAction }) => {
             <span className="font-mono font-medium text-green-600">
               {formatDuration(successfulCalls.reduce((acc, call) => acc + (call.duration || 0), 0))}
             </span>
+          </div>
+
+          {/* Botões de ação para chamadas bem-sucedidas */}
+          <div className="mt-4 pt-3 border-t border-green-500/30 flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onCallAction('create-list-from-successful', 'bulk', {
+                numbers: successfulCalls.map(c => c.number)
+              })}
+              className="flex-1 min-w-[140px] bg-green-500/10 border-green-500/30 hover:bg-green-500/20 text-green-700"
+            >
+              <ListPlus className="w-4 h-4 mr-2" />
+              Criar Lista ({successfulCalls.length})
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onCallAction('delete-successful', 'bulk', {
+                callIds: successfulCalls.map(c => c.id)
+              })}
+              className="flex-1 min-w-[140px] bg-red-500/10 border-red-500/30 hover:bg-red-500/20 text-red-700"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Excluir Histórico
+            </Button>
           </div>
         </div>
       )}
