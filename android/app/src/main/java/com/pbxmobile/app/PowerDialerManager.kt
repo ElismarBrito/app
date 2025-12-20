@@ -1840,12 +1840,14 @@ class PowerDialerManager(
                         
                         Log.w(TAG, "⚠️ FALHA RÁPIDA detectada: chamada falhou em ${callDuration}ms com $currentActiveCount ativas (falhas consecutivas: $consecutiveQuickFailures)")
                         
-                        // Se tivemos muitas falhas rápidas consecutivas, reduz o limite detectado
-                        if (consecutiveQuickFailures >= quickFailuresToReduceLimit && currentActiveCount < detectedMaxCalls) {
-                            detectedMaxCalls = currentActiveCount.coerceAtLeast(1) // Mínimo de 1 chamada
-                            Log.w(TAG, "🔻 LIMITE REAL DETECTADO: Dispositivo suporta máximo de $detectedMaxCalls chamadas simultâneas (não $maxConcurrentCalls)")
-                            consecutiveQuickFailures = 0 // Reset após ajustar
-                        }
+                        // CORREÇÃO: Removida a lógica de redução automática do limite
+                        // O discador SEMPRE tentará manter 6 chamadas ativas, independente de falhas
+                        // A lógica anterior causava o discador parar de discar após algumas falhas
+                        // if (consecutiveQuickFailures >= quickFailuresToReduceLimit && currentActiveCount < detectedMaxCalls) {
+                        //     detectedMaxCalls = currentActiveCount.coerceAtLeast(1)
+                        //     Log.w(TAG, "🔻 LIMITE REAL DETECTADO...")
+                        //     consecutiveQuickFailures = 0
+                        // }
                     }
                 }
                 
