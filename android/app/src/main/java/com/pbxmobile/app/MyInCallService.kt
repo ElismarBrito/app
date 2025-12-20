@@ -215,6 +215,35 @@ class MyInCallService : InCallService() {
         }
     }
     
+    /**
+     * Encerra TODAS as chamadas ativas.
+     * Usado para garantir que ao parar uma campanha, todas as chamadas sejam encerradas.
+     * @return Número de chamadas encerradas
+     */
+    fun endAllCalls(): Int {
+        val callsToEnd = activeCalls.values.toList()
+        var endedCount = 0
+        
+        Log.d(TAG, "🛑 Encerrando todas as ${callsToEnd.size} chamadas ativas...")
+        
+        callsToEnd.forEach { wrapper ->
+            try {
+                val state = wrapper.call.state
+                // Apenas desconecta chamadas que ainda estão ativas
+                if (state != Call.STATE_DISCONNECTED && state != Call.STATE_DISCONNECTING) {
+                    Log.d(TAG, "📴 Encerrando chamada: ${wrapper.callId} (${wrapper.phoneNumber})")
+                    wrapper.call.disconnect()
+                    endedCount++
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Erro ao encerrar chamada ${wrapper.callId}: ${e.message}")
+            }
+        }
+        
+        Log.d(TAG, "✅ Total de ${endedCount} chamadas encerradas")
+        return endedCount
+    }
+    
     fun answerCall(callId: String): Boolean {
         val wrapper = activeCalls[callId]
         return if (wrapper != null && wrapper.call.state == Call.STATE_RINGING) {

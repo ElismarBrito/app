@@ -851,8 +851,10 @@ class PowerDialerManager(
         // Notifica progresso atualizado
         notifyProgress()
         
-        // CORREÇÃO BUG #4: Notifica pool imediatamente
-        poolRefillChannel.trySend(Unit)
+        // CORREÇÃO BUG #4: Notifica pool imediatamente (apenas se campanha ativa)
+        if (isMaintainingPool) {
+            poolRefillChannel.trySend(Unit)
+        }
     }
     
     /**
@@ -868,6 +870,18 @@ class PowerDialerManager(
             poolMaintenanceJob = null
             
             Log.d(TAG, "🛑 Campanha parada: ${campaign.sessionId}")
+            
+            // CORREÇÃO CRÍTICA: Encerrar TODAS as chamadas ativas via InCallService
+            // Isso garante que todas as chamadas no sistema Android sejam encerradas,
+            // não apenas as que estão mapeadas internamente no PowerDialerManager
+            try {
+                val inCallService = ServiceRegistry.getInCallService()
+                val endedCount = inCallService?.endAllCalls() ?: 0
+                Log.d(TAG, "📴 Encerradas $endedCount chamadas via InCallService")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Erro ao encerrar chamadas via InCallService: ${e.message}")
+            }
+            
             Log.d(TAG, "⏳ Aguardando conclusão das chamadas em progresso (máx 3s)...")
             
             // ===== OPÇÃO A: Aguardar conclusão natural + desconectar restos =====
@@ -1746,7 +1760,10 @@ class PowerDialerManager(
             val currentState = activeCall.state // Estado atual após processCallStateUpdate
             Log.d(TAG, "⚡ Chamada saiu de DIALING/RINGING ($previousState → $currentState) - disparando verificação imediata do pool")
             // CORREÇÃO BUG #4: Notifica pool imediatamente (sem delay) para discar próxima
-            poolRefillChannel.trySend(Unit)
+            // CORREÇÃO: Apenas se campanha ainda está ativa
+            if (isMaintainingPool) {
+                poolRefillChannel.trySend(Unit)
+            }
         } else {
             updateActiveCallsInUI()
         }
@@ -1773,7 +1790,10 @@ class PowerDialerManager(
         if (wasDialingOrRinging && isNoLongerDialingOrRinging) {
             Log.d(TAG, "⚡ Chamada saiu de DIALING/RINGING ($previousState → $callState) - disparando verificação imediata do pool")
             // CORREÇÃO BUG #4: Notifica pool imediatamente (sem delay)
-            poolRefillChannel.trySend(Unit)
+            // CORREÇÃO: Apenas se campanha ainda está ativa
+            if (isMaintainingPool) {
+                poolRefillChannel.trySend(Unit)
+            }
         }
         
         // CORREÇÃO: Tenta merge IMEDIATAMENTE quando uma chamada fica ACTIVE e já há outra ativa
@@ -1798,7 +1818,10 @@ class PowerDialerManager(
             
             // CORREÇÃO BUG #4: Notifica pool imediatamente quando chamada fica ACTIVE
             // Isso garante que a 6ª chamada seja discada rapidamente quando há 5 ativas
-            poolRefillChannel.trySend(Unit)
+            // CORREÇÃO: Apenas se campanha ainda está ativa
+            if (isMaintainingPool) {
+                poolRefillChannel.trySend(Unit)
+            }
 
             // Reset de falhas consecutivas ao obter sucesso
             try {
@@ -1856,8 +1879,10 @@ class PowerDialerManager(
                     delay(minCallDuration)
                     handleCallCompletion(callId, callState, call)
                     // CORREÇÃO CRÍTICA: Dispara refill IMEDIATO após chamada falhar
-                    // CORREÇÃO BUG #4: Notifica pool imediatamente
-                    poolRefillChannel.trySend(Unit)
+                    // CORREÇÃO BUG #4: Notifica pool imediatamente (apenas se campanha ativa)
+                    if (isMaintainingPool) {
+                        poolRefillChannel.trySend(Unit)
+                    }
                 }
             }
             CallState.ACTIVE -> {
@@ -2164,8 +2189,13 @@ class PowerDialerManager(
         
         // CORREÇÃO CRÍTICA: Dispara refill IMEDIATAMENTE após remover da lista
         // Isso garante que o pool seja preenchido rapidamente quando uma chamada cai
-        poolRefillChannel.trySend(Unit)
-        Log.d(TAG, "⚡ Slot liberado - disparando refill imediato do pool")
+        // CORREÇÃO: Apenas se campanha ainda está ativa (evita loop após stopCampaign)
+        if (isMaintainingPool) {
+            poolRefillChannel.trySend(Unit)
+            Log.d(TAG, "⚡ Slot liberado - disparando refill imediato do pool")
+        } else {
+            Log.d(TAG, "⚡ Slot liberado - NÃO disparando refill (campanha encerrada)")
+        }
         
         // CORREÇÃO: Adiciona número desconectado à fila prioritária para re-ligar quando fila principal vazia
         // Isso garante que quando uma chamada cai e não há mais números na fila, o discador re-liga para esse número

@@ -42,9 +42,20 @@ interface DevicesTabProps {
   onGenerateQR?: () => void;
   onStartCampaignAll?: (listId: string, deviceIds: string[]) => void;
   onStopCampaign?: (deviceId: string) => void;
+  onStopCampaignAll?: () => void;
+  activeCampaignForAll?: boolean;
 }
 
-export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDeviceAction, onGenerateQR, onStartCampaignAll, onStopCampaign }) => {
+export const DevicesTab: React.FC<DevicesTabProps> = ({
+  devices,
+  lists,
+  onDeviceAction,
+  onGenerateQR,
+  onStartCampaignAll,
+  onStopCampaign,
+  onStopCampaignAll,
+  activeCampaignForAll
+}) => {
   const [callNumber, setCallNumber] = useState('');
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [selectedList, setSelectedList] = useState<string | null>(null);
@@ -151,17 +162,31 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({ devices, lists, onDevice
           Dispositivos Pareados ({devices.length})
         </h3>
         <div className="flex items-center space-x-2">
-          {/* Botão Iniciar Campanha em Todos - só aparece se há 2+ dispositivos online e listas ativas */}
+          {/* Botão Iniciar/Encerrar Campanha em Todos - só aparece se há 2+ dispositivos online e listas ativas */}
           {onlineDevices.length >= 2 && activeLists.length > 0 && (
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => setIsCampaignAllDialogOpen(true)}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
-              <Users2 className="w-4 h-4 mr-2" />
-              Iniciar em Todos ({onlineDevices.length})
-            </Button>
+            activeCampaignForAll ? (
+              // Botão de Encerrar Campanha (quando campanha está ativa)
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => onStopCampaignAll?.()}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Square className="w-4 h-4 mr-2" />
+                Encerrar Campanha ({onlineDevices.length})
+              </Button>
+            ) : (
+              // Botão de Iniciar Campanha (quando não há campanha ativa)
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setIsCampaignAllDialogOpen(true)}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Users2 className="w-4 h-4 mr-2" />
+                Iniciar em Todos ({onlineDevices.length})
+              </Button>
+            )
           )}
           <Button
             variant="outline"
