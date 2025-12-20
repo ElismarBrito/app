@@ -447,16 +447,30 @@ class PowerDialerManager(
         Log.d(TAG, "📌 [DEBUG CAMPANHA] startCampaign chamado com ${numbers.size} números")
         Log.d(TAG, "📌 [DEBUG CAMPANHA] Números recebidos: ${numbers.map { "'$it'" }.joinToString(", ")}")
         
+        // CORREÇÃO CRÍTICA: Se há menos números que o pool máximo, repete os números para preencher o pool
+        // Exemplo: 2 números com pool de 6 → cria fila com 6 entradas (repete os números 3x)
+        val expandedNumbers = if (numbers.size < maxConcurrentCalls && numbers.isNotEmpty()) {
+            val repetitions = (maxConcurrentCalls / numbers.size) + 1 // Quantas vezes repetir para garantir
+            val expanded = mutableListOf<String>()
+            repeat(repetitions) {
+                expanded.addAll(numbers)
+            }
+            Log.d(TAG, "📋 Lista expandida de ${numbers.size} para ${expanded.size} números (repetição para preencher pool de $maxConcurrentCalls)")
+            expanded
+        } else {
+            numbers.toMutableList()
+        }
+        
         // CORREÇÃO CRÍTICA: NÃO deduplica - mantém TODOS os números na ordem exata
         // Permite múltiplas chamadas para o mesmo número (ex: 999468322, 996167107, 996424402, 999468322, 996167107, 996424402)
         // Usa DialToken para criar tokens robustos (suporta números com "|")
         // Mantém a sequência enviada pelo usuário (não embaralhar)
-        val shuffled = numbers.mapIndexed { i, num -> 
+        val shuffled = expandedNumbers.mapIndexed { i, num -> 
             DialToken(number = num, prefix = "normal", index = i).serialize()
         }.toMutableList()
-        Log.d(TAG, "📌 [DEBUG CAMPANHA] Números após preparar fila (ordem preservada, sem deduplicação): ${numbers.joinToString(", ")}")
+        Log.d(TAG, "📌 [DEBUG CAMPANHA] Números após preparar fila (ordem preservada, sem deduplicação): ${expandedNumbers.joinToString(", ")}")
         
-        // Para tracking de tentativas, usa números únicos
+        // Para tracking de tentativas, usa números únicos (da lista ORIGINAL, não expandida)
         val uniqueNumbers = numbers.distinct().toMutableList()
         
         currentCampaign = Campaign(
@@ -590,8 +604,22 @@ class PowerDialerManager(
                         attemptManager.clear()
                         attemptManager.initialize(campaign.numbers.distinct().toMutableList())
 
+                        // CORREÇÃO CRÍTICA: Expande a lista se há menos números que o pool máximo
+                        // Isso garante que o pool seja preenchido mesmo com poucos números
+                        val numbersToReload = if (campaign.numbers.size < maxConcurrentCalls && campaign.numbers.isNotEmpty()) {
+                            val repetitions = (maxConcurrentCalls / campaign.numbers.size) + 1
+                            val expanded = mutableListOf<String>()
+                            repeat(repetitions) {
+                                expanded.addAll(campaign.numbers)
+                            }
+                            Log.d(TAG, "📋 Lista expandida de ${campaign.numbers.size} para ${expanded.size} números para preencher pool")
+                            expanded
+                        } else {
+                            campaign.numbers
+                        }
+
                         // CORREÇÃO CRÍTICA: A recarga agora é síncrona para evitar condições de corrida.
-                        val reloaded = campaign.numbers.mapIndexed { i, num ->
+                        val reloaded = numbersToReload.mapIndexed { i, num ->
                             DialToken(number = num, prefix = "normal", index = i).serialize()
                         }
                         campaign.shuffledNumbers.clear()
