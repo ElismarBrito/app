@@ -77,6 +77,7 @@ const PBXDashboard = () => {
   const [sessionLink, setSessionLink] = useState<string>('');
   const [showNewCallDialog, setShowNewCallDialog] = useState(false);
   const [showConferenceDialog, setShowConferenceDialog] = useState(false);
+  const [activeCampaignForAll, setActiveCampaignForAll] = useState(false);
 
   const generateQRCode = async () => {
     if (!user) return;
@@ -439,6 +440,11 @@ const PBXDashboard = () => {
       await addCall(numbers[i], deviceId);
     }
 
+    // Se iniciou campanha em múltiplos dispositivos, ativa o estado para mostrar botão de encerrar
+    if (deviceIds.length >= 2) {
+      setActiveCampaignForAll(true);
+    }
+
     toast({
       title: "Campanha iniciada",
       description: `${numbers.length} chamadas distribuídas entre ${deviceIds.length} dispositivos`
@@ -488,6 +494,66 @@ const PBXDashboard = () => {
     toast({
       title: "Campanha encerrada",
       description: `${deviceCalls.length} chamada(s) foram encerradas`
+    });
+  };
+
+  // NOVO: Encerrar todas as chamadas de TODOS os dispositivos online
+  const handleStopCampaignAll = async () => {
+    const now = Date.now();
+
+    // Pegar todos os dispositivos online
+    const onlineDeviceIds = devices
+      .filter(d => d.status === 'online')
+      .map(d => d.id);
+
+    if (onlineDeviceIds.length === 0) {
+      toast({
+        title: "Nenhum dispositivo online",
+        description: "Não há dispositivos online para encerrar campanhas",
+        variant: "default"
+      });
+      setActiveCampaignForAll(false);
+      return;
+    }
+
+    // Encontra todas as chamadas ativas de TODOS os dispositivos online
+    const allActiveCalls = calls.filter(c =>
+      onlineDeviceIds.includes(c.device_id || '') &&
+      c.status !== 'ended'
+    );
+
+    if (allActiveCalls.length === 0) {
+      toast({
+        title: "Campanha encerrada",
+        description: "Nenhuma chamada ativa encontrada"
+      });
+      setActiveCampaignForAll(false);
+      return;
+    }
+
+    // Enviar comando stop_campaign para cada dispositivo
+    for (const deviceId of onlineDeviceIds) {
+      await sendCommandToDevice(deviceId, 'stop_campaign', {});
+    }
+
+    // Marca todas as chamadas como encerradas
+    for (const call of allActiveCalls) {
+      let duration = 0;
+
+      // Só calcula duração se a chamada foi realmente atendida
+      if (call.status === 'answered') {
+        duration = Math.floor((now - new Date(call.start_time).getTime()) / 1000);
+      }
+
+      await updateCallStatus(call.id, 'ended', duration);
+    }
+
+    // Reseta o estado
+    setActiveCampaignForAll(false);
+
+    toast({
+      title: "Campanhas encerradas",
+      description: `${allActiveCalls.length} chamada(s) encerrada(s) em ${onlineDeviceIds.length} dispositivo(s)`
     });
   };
 
@@ -807,6 +873,8 @@ const PBXDashboard = () => {
                           onGenerateQR={refreshQRCode}
                           onStartCampaignAll={(listId, deviceIds) => handleStartCampaign(listId, deviceIds, true)}
                           onStopCampaign={handleStopCampaign}
+                          onStopCampaignAll={handleStopCampaignAll}
+                          activeCampaignForAll={activeCampaignForAll}
                         />
                       </TabsContent>
 
