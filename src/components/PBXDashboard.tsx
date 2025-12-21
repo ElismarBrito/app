@@ -52,21 +52,29 @@ const PBXDashboard = () => {
   });
 
   // PROFISSIONAL: Heartbeat bidirecional (ping/pong) - Verificação ativa de dispositivos
+  console.log('🎯 [PBXDashboard] Chamando useDeviceHeartbeat com', devices.length, 'dispositivos')
   useDeviceHeartbeat({
     devices,
     onDeviceInactive: async (deviceId) => {
-      console.log(`⚠️ Dispositivo ${deviceId} inativo (sem resposta a ping/pong e sem heartbeat)`)
-      // Marcar como offline usando a função do banco (mais confiável)
+      console.log(`⚠️ Dispositivo ${deviceId} inativo (sem resposta a ping/pong)`)
+      // Marcar como offline diretamente no banco
       try {
-        // Usar a função do banco para marcar dispositivos inativos
-        const { data, error } = await supabase.rpc('mark_inactive_devices_offline')
+        const { error } = await supabase
+          .from('devices')
+          .update({
+            status: 'offline',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', deviceId)
+
         if (error) throw error
+        console.log(`✅ Dispositivo ${deviceId} marcado como offline`)
 
         // Recarregar dispositivos para refletir mudanças
         await refetch()
       } catch (error) {
         console.error('Erro ao marcar dispositivo inativo:', error)
-        // Fallback: marcar manualmente
+        // Fallback: marcar usando a função local
         await updateDeviceStatus(deviceId, { status: 'offline' })
       }
     }

@@ -5,11 +5,11 @@ import { Device } from './usePBXData';
 
 export const useDeviceValidation = (devices: Device[], updateDeviceStatus: (deviceId: string, updates: Partial<Device>) => void) => {
   const { user } = useAuth();
-  
+
   // CORREÇÃO: Usa refs para evitar recriações desnecessárias
   const devicesRef = useRef(devices);
   const updateDeviceStatusRef = useRef(updateDeviceStatus);
-  
+
   // Atualiza refs quando mudam
   useEffect(() => {
     devicesRef.current = devices;
@@ -23,21 +23,23 @@ export const useDeviceValidation = (devices: Device[], updateDeviceStatus: (devi
     try {
       // Simulate internet connectivity check
       const internetStatus = Math.random() > 0.1 ? 'good' : Math.random() > 0.5 ? 'poor' : 'offline';
-      
+
       // Simulate signal strength check  
       const signalStatus = Math.random() > 0.1 ? 'excellent' : Math.random() > 0.5 ? 'good' : 'poor';
-      
+
       // Simulate line block check
       const lineBlocked = Math.random() > 0.95; // 5% chance of being blocked
-      
+
       // Update device status in database
+      // NOTA: NÃO atualiza last_seen aqui! Apenas o app mobile deve atualizar last_seen
+      // para que a detecção de dispositivos offline funcione corretamente
       const { error } = await supabase
         .from('devices')
         .update({
           internet_status: internetStatus,
           signal_status: signalStatus,
-          line_blocked: lineBlocked,
-          last_seen: new Date().toISOString()
+          line_blocked: lineBlocked
+          // last_seen REMOVIDO - apenas o app mobile atualiza
         })
         .eq('id', device.id)
         .eq('user_id', user?.id);
@@ -64,7 +66,7 @@ export const useDeviceValidation = (devices: Device[], updateDeviceStatus: (devi
   // Validate all online devices periodically - usa ref para evitar recriações
   const validateAllDevices = useCallback(async () => {
     const onlineDevices = devicesRef.current.filter(device => device.status === 'online');
-    
+
     for (const device of onlineDevices) {
       await validateDevice(device);
       // Add small delay between validations to avoid overwhelming
@@ -78,7 +80,7 @@ export const useDeviceValidation = (devices: Device[], updateDeviceStatus: (devi
 
     // Initial validation apenas uma vez
     const initialTimeout = setTimeout(() => {
-    validateAllDevices();
+      validateAllDevices();
     }, 2000); // Delay inicial de 2 segundos para evitar validação imediata
 
     // Set up periodic validation every 30 seconds
@@ -119,7 +121,7 @@ export const useDeviceValidation = (devices: Device[], updateDeviceStatus: (devi
   const requestDeviceValidation = useCallback(async (deviceId: string) => {
     try {
       const channel = supabase.channel('device-commands');
-      
+
       await channel.send({
         type: 'broadcast',
         event: 'validate-status',

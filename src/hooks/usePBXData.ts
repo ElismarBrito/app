@@ -126,31 +126,32 @@ export const usePBXData = () => {
         console.log(`  ✅ [${index + 1}] ${device.name} (${device.id}) - Status: ${device.status || 'null'}, Pareado: ${device.paired_at || 'N/A'}`)
       })
 
-      // CORREÇÃO: Verificar dispositivos 'online' com last_seen antigo (> 5 minutos) e marcar como offline imediatamente
+      // CORREÇÃO: Verificar dispositivos 'online' com last_seen antigo (> 1 minuto) e marcar como offline imediatamente
       // IMPORTANTE: Não marcar como offline se foi pareado recentemente (últimos 2 minutos)
-      // Reutilizar 'now' já declarado acima
-      const fiveMinutesAgo = now - (5 * 60 * 1000)
-      const twoMinutesAgo = now - (2 * 60 * 1000) // Grace period para dispositivos recém-pareados
+      const ONE_MINUTE_MS = 60 * 1000
+      const TWO_MINUTES_MS = 2 * 60 * 1000 // Grace period para dispositivos recém-pareados
 
       const inactiveOnlineDevices = filteredDevices.filter(device => {
         if (device.status !== 'online') return false
 
         // Se foi pareado recentemente (últimos 2 minutos), não marcar como offline
         if (device.paired_at) {
-          const pairedAtTime = new Date(device.paired_at).getTime()
-          if ((now - pairedAtTime) < twoMinutesAgo) {
-            console.log(`⏳ Dispositivo ${device.name} pareado recentemente, mantendo online`);
+          const timeSincePaired = now - new Date(device.paired_at).getTime()
+          if (timeSincePaired < TWO_MINUTES_MS) {
+            console.log(`⏳ Dispositivo ${device.name} pareado recentemente (${Math.round(timeSincePaired / 1000)}s atrás), mantendo online`);
             return false // Não marcar como inativo se foi pareado recentemente
           }
         }
 
         if (!device.last_seen) {
           // Sem last_seen mas pareado há mais de 2 minutos = inativo
-          return device.paired_at ? (now - new Date(device.paired_at).getTime()) > twoMinutesAgo : true
+          const timeSincePaired = device.paired_at ? now - new Date(device.paired_at).getTime() : Infinity
+          return timeSincePaired > TWO_MINUTES_MS
         }
 
-        const lastSeenTime = new Date(device.last_seen).getTime()
-        return (now - lastSeenTime) > fiveMinutesAgo // Mais de 5 minutos sem heartbeat
+        const timeSinceLastSeen = now - new Date(device.last_seen).getTime()
+        console.log(`📊 Dispositivo ${device.name}: last_seen há ${Math.round(timeSinceLastSeen / 1000)}s (limite: ${ONE_MINUTE_MS / 1000}s)`)
+        return timeSinceLastSeen > ONE_MINUTE_MS // Mais de 1 minuto sem heartbeat
       })
 
       // Marcar dispositivos inativos como offline no banco

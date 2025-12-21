@@ -23,6 +23,7 @@ import { Smartphone, Wifi, WifiOff, Phone, PhoneOff, Settings, Play, Square, Cre
 import { Switch } from '@/components/ui/switch';
 import PbxMobile from '@/plugins/pbx-mobile';
 import type { CallInfo, SimCardInfo, CampaignProgress, CampaignSummary, PluginListenerHandle } from '@/plugins/pbx-mobile';
+import { Network } from '@capacitor/network';
 
 interface MobileAppProps {
   isStandalone?: boolean;
@@ -231,10 +232,43 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             .eq('user_id', user.id)
             .single()
 
-          // CORREÇÃO: Verificar explicitamente se status é 'unpaired' e limpar tudo
-          if (error || !device || device.status === 'unpaired') {
-            // Dispositivo foi despareado ou não existe mais, limpar TUDO
-            console.log('⚠️ Dispositivo não está mais pareado (status:', device?.status || 'não encontrado', '), limpando persistência')
+          // CORREÇÃO CRÍTICA: Diferenciar erro de REDE de despareamento REAL
+          // Só limpa localStorage se temos CERTEZA que foi despareado (device.status === 'unpaired')
+          // Se for erro de rede, mantém o pareamento local para quando a internet voltar
+
+          if (error) {
+            // Pode ser erro de rede - NÃO limpar localStorage
+            console.log('⚠️ Erro ao verificar pareamento (pode ser falta de internet):', error.message || error)
+            console.log('📱 Mantendo pareamento local (savedDeviceId:', savedDeviceId, ') - tentará reconectar quando houver internet')
+
+            // Mesmo sem conseguir verificar no banco, restaura estado local
+            // para permitir que o usuário veja algo e tente reconectar
+            setDeviceId(savedDeviceId)
+            setIsPaired(true)
+            setIsConnected(false) // Marca como desconectado até conseguir verificar
+
+            // Verificar permissões localmente
+            try {
+              const dialerResult = await PbxMobile.hasRoleDialer()
+              setHasDialerRole(dialerResult.hasRole)
+              setHasAllPermissions(dialerResult.hasRole)
+              setIsConfigured(dialerResult.hasRole)
+            } catch (permError) {
+              console.error('Erro ao verificar permissões:', permError)
+            }
+
+            toast({
+              title: "Sem conexão",
+              description: "Pareamento salvo localmente. Reconectando quando houver internet...",
+              variant: "destructive"
+            })
+            return
+          }
+
+          // Agora sim, verificar se foi despareado de verdade (device existe mas status = unpaired)
+          if (!device || device.status === 'unpaired') {
+            // Dispositivo foi despareado REALMENTE pelo dashboard, limpar TUDO
+            console.log('⚠️ Dispositivo foi despareado pelo dashboard (status:', device?.status || 'não encontrado', '), limpando persistência')
             localStorage.removeItem(`pbx_device_id_${user.id}`)
             if (savedDeviceId) {
               localStorage.removeItem(`pbx_permissions_requested_${savedDeviceId}`)
@@ -322,6 +356,167 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
 
     loadPersistedPairing()
   }, [user])
+
+  // CORREÇÃO: Detectar reconexão de internet e restaurar pareamento automaticamente
+  useEffect(() => {
+    if (!user) return
+
+    const handleInternetReconnection = async () => {
+      console.log('🌐 Internet reconectada! Verificando pareamento...')
+
+      // Se já está pareado, apenas atualizar status no banco
+      if (deviceId && isPaired) {
+        console.log('✅ Já está pareado, atualizando status para online...')
+        try {
+          await supabase
+            .from('devices')
+            .update({
+              status: 'online',
+              last_seen: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', deviceId)
+            .eq('user_id', user.id)
+          console.log('✅ Status atualizado para online após reconexão')
+        } catch (error) {
+          console.error('❌ Erro ao atualizar status após reconexão:', error)
+        }
+        return
+      }
+
+      // Se não está pareado, tentar restaurar do localStorage
+      const savedDeviceId = localStorage.getItem(`pbx_device_id_${user.id}`)
+      if (!savedDeviceId) {
+        console.log('ℹ️ Nenhum pareamento persistido encontrado')
+        return
+      }
+
+      console.log('📱 Tentando restaurar pareamento após reconexão:', savedDeviceId)
+
+      try {
+        // Verificar se o dispositivo ainda existe e está pareado no banco
+        const { data: device, error } = await supabase
+          .from('devices')
+          .select('id, status, name')
+          .eq('id', savedDeviceId)
+          .eq('user_id', user.id)
+          .single()
+
+        if (error || !device || device.status === 'unpaired') {
+          console.log('⚠️ Dispositivo não está mais pareado no banco')
+          localStorage.removeItem(`pbx_device_id_${user.id}`)
+          return
+        }
+
+        // Restaurar estado de pareamento
+        console.log('✅ Restaurando pareamento após reconexão de internet...')
+        setDeviceId(device.id)
+        setIsPaired(true)
+        setIsConnected(true)
+
+        // Atualizar status para online no banco
+        await supabase
+          .from('devices')
+          .update({
+            status: 'online',
+            last_seen: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', device.id)
+          .eq('user_id', user.id)
+
+        // Verificar permissões
+        try {
+          const dialerResult = await PbxMobile.hasRoleDialer()
+          setHasDialerRole(dialerResult.hasRole)
+          setHasAllPermissions(dialerResult.hasRole)
+          setIsConfigured(dialerResult.hasRole)
+        } catch (permError) {
+          console.error('Erro ao verificar permissões após reconexão:', permError)
+        }
+
+        toast({
+          title: "Reconectado!",
+          description: "Internet recuperada. Dispositivo online novamente.",
+          variant: "default"
+        })
+
+        console.log('✅ Pareamento restaurado após reconexão de internet')
+      } catch (error) {
+        console.error('❌ Erro ao restaurar pareamento após reconexão:', error)
+      }
+    }
+
+    // Handler para quando perde internet
+    const handleInternetLost = async () => {
+      console.log('🔴 Internet perdida!')
+
+      // Mostrar feedback ao usuário
+      toast({
+        title: "Sem internet",
+        description: "Conexão perdida. Tentando reconectar...",
+        variant: "destructive"
+      })
+
+      // Tentar atualizar status para offline no banco (pode falhar se já não tem internet)
+      if (deviceId && user) {
+        try {
+          await supabase
+            .from('devices')
+            .update({
+              status: 'offline',
+              last_seen: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', deviceId)
+            .eq('user_id', user.id)
+          console.log('✅ Status atualizado para offline')
+        } catch (error) {
+          console.log('⚠️ Não foi possível atualizar status para offline (sem internet)')
+        }
+      }
+    }
+
+    // CORREÇÃO: Usar plugin Capacitor Network nativo em vez de window.online/offline
+    // O plugin funciona corretamente no Android, diferente dos eventos web
+    let networkListener: any = null;
+
+    const setupNetworkListener = async () => {
+      try {
+        // Verificar status inicial
+        const status = await Network.getStatus();
+        console.log('🌐 Status de rede inicial:', status.connected ? 'Conectado' : 'Desconectado', status.connectionType);
+
+        // Adicionar listener para mudanças de conexão
+        networkListener = await Network.addListener('networkStatusChange', async (status) => {
+          console.log('🌐 Mudança de rede detectada:', status.connected ? 'Conectado' : 'Desconectado', status.connectionType);
+
+          if (status.connected) {
+            handleInternetReconnection();
+          } else {
+            handleInternetLost();
+          }
+        });
+
+        console.log('✅ Listener de rede Capacitor configurado');
+      } catch (error) {
+        console.error('❌ Erro ao configurar listener de rede:', error);
+        // Fallback para listeners web se plugin falhar
+        window.addEventListener('online', handleInternetReconnection);
+        window.addEventListener('offline', handleInternetLost);
+      }
+    };
+
+    setupNetworkListener();
+
+    return () => {
+      if (networkListener) {
+        networkListener.remove();
+      }
+      window.removeEventListener('online', handleInternetReconnection);
+      window.removeEventListener('offline', handleInternetLost);
+    }
+  }, [user, deviceId, isPaired])
 
   useEffect(() => {
     // Automatically fill session code from URL parameters and auto-pair if possible
