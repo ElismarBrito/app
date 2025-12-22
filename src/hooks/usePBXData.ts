@@ -442,6 +442,55 @@ export const usePBXData = () => {
     }
   }
 
+  // OTIMIZAÇÃO: Adicionar múltiplas chamadas em lote (batch insert)
+  // Muito mais rápido que addCall em loop para campanhas com 100+ números
+  const addCallsBatch = async (calls: Array<{ number: string; deviceId: string }>) => {
+    if (!user) return { inserted: 0, errors: 0 }
+
+    const now = new Date().toISOString()
+    const callRecords = calls.map(call => ({
+      number: call.number,
+      status: 'ringing',
+      start_time: now,
+      user_id: user.id,
+      device_id: call.deviceId
+    }))
+
+    // Dividir em chunks de 500 para evitar limites do Supabase
+    const CHUNK_SIZE = 500
+    let totalInserted = 0
+    let totalErrors = 0
+
+    console.log(`📤 Inserindo ${callRecords.length} chamadas em lote...`)
+
+    for (let i = 0; i < callRecords.length; i += CHUNK_SIZE) {
+      const chunk = callRecords.slice(i, i + CHUNK_SIZE)
+
+      try {
+        const { data, error } = await supabase
+          .from('calls' as any)
+          .insert(chunk)
+          .select()
+
+        if (error) {
+          console.error(`❌ Erro na inserção em lote:`, error.message)
+          totalErrors += chunk.length
+        } else {
+          totalInserted += data?.length || 0
+          console.log(`✅ Chunk ${Math.floor(i / CHUNK_SIZE) + 1} inserido: ${data?.length || 0} chamadas`)
+        }
+      } catch (err: any) {
+        console.error(`❌ Erro no chunk:`, err?.message)
+        totalErrors += chunk.length
+      }
+    }
+
+    console.log(`📊 Resultado: ${totalInserted} inseridos, ${totalErrors} erros`)
+
+    await fetchCalls()
+    return { inserted: totalInserted, errors: totalErrors }
+  }
+
   // Update call status with duration tracking and soft delete
   const updateCallStatus = async (callId: string, status?: 'answered' | 'ended', duration?: number, updates?: { hidden?: boolean }) => {
     try {
@@ -838,6 +887,7 @@ export const usePBXData = () => {
     updateDeviceStatus,
     removeDevice,
     addCall,
+    addCallsBatch, // NOVO: Inserção em lote para campanhas
     updateCallStatus,
     deleteCall,
     deleteAllEndedCalls, // Nova função para limpar histórico

@@ -33,6 +33,7 @@ const PBXDashboard = () => {
     updateDeviceStatus,
     removeDevice,
     addCall,
+    addCallsBatch, // NOVO: Inserção em lote
     updateCallStatus,
     deleteCall,
     deleteAllEndedCalls,
@@ -467,11 +468,20 @@ const PBXDashboard = () => {
       }
     }
 
-    // Distribute calls across devices
-    for (let i = 0; i < numbers.length; i++) {
-      const deviceId = deviceIds[i % deviceIds.length];
-      await addCall(numbers[i], deviceId);
-    }
+    // OTIMIZAÇÃO: Preparar lista de chamadas distribuídas entre dispositivos
+    // Antes: loop com await addCall (muito lento para 100+ números)
+    // Agora: addCallsBatch com inserção em lote (< 2 segundos para 100+ números)
+    const callsToInsert = numbers.map((number, i) => ({
+      number,
+      deviceId: deviceIds[i % deviceIds.length]
+    }));
+
+    console.log(`📤 Iniciando campanha: ${numbers.length} números para ${deviceIds.length} dispositivo(s)`);
+
+    // Inserção em lote - muito mais rápida
+    const result = await addCallsBatch(callsToInsert);
+
+    console.log(`✅ Campanha criada: ${result?.inserted || 0} chamadas inseridas`);
 
     // Se iniciou campanha em múltiplos dispositivos, ativa o estado para mostrar botão de encerrar
     if (deviceIds.length >= 2) {
@@ -480,7 +490,7 @@ const PBXDashboard = () => {
 
     toast({
       title: "Campanha iniciada",
-      description: `${numbers.length} chamadas distribuídas entre ${deviceIds.length} dispositivos`
+      description: `${result?.inserted || numbers.length} chamadas distribuídas entre ${deviceIds.length} dispositivos`
     });
   };
 

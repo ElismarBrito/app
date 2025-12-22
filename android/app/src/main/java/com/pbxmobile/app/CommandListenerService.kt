@@ -243,11 +243,66 @@ class CommandListenerService : Service() {
             // Marca comando como processando
             updateCommandStatus(commandId, "processing")
             
-            // Notifica callback (WebView) sobre o comando
-            commandCallback?.onCommandReceived(commandType, commandData)
-            
-            // Também envia broadcast para o WebView/Capacitor
-            sendBroadcastToWebView(commandType, commandData)
+            // OTIMIZAÇÃO: Processar start_campaign diretamente no nativo
+            // Isso garante que campanhas funcionem mesmo com tela desligada
+            when (commandType) {
+                "start_campaign" -> {
+                    try {
+                        val listData = commandData.optJSONObject("list")
+                        val numbersArray = listData?.optJSONArray("numbers")
+                        val listId = commandData.optString("listId", "")
+                        val listName = commandData.optString("listName", "Campanha")
+                        
+                        if (numbersArray != null && numbersArray.length() > 0) {
+                            val numbers = mutableListOf<String>()
+                            for (i in 0 until numbersArray.length()) {
+                                numbers.add(numbersArray.getString(i))
+                            }
+                            
+                            Log.d(TAG, "🚀 Iniciando campanha nativa com ${numbers.size} números")
+                            
+                            // Obtém o plugin e inicia a campanha diretamente
+                            val plugin = ServiceRegistry.getPlugin()
+                            if (plugin != null && deviceId != null) {
+                                val sessionId = plugin.powerDialerManager.startCampaign(
+                                    numbers,
+                                    deviceId!!,
+                                    listId,
+                                    listName,
+                                    null // phoneAccountHandle
+                                )
+                                Log.d(TAG, "✅ Campanha iniciada: $sessionId")
+                            } else {
+                                Log.w(TAG, "⚠️ Plugin não disponível, enviando para WebView")
+                                sendBroadcastToWebView(commandType, commandData)
+                            }
+                        } else {
+                            Log.e(TAG, "❌ Lista de números vazia ou inválida")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Erro ao iniciar campanha: ${e.message}", e)
+                        // Fallback: tenta via WebView
+                        sendBroadcastToWebView(commandType, commandData)
+                    }
+                }
+                
+                "stop_campaign" -> {
+                    try {
+                        Log.d(TAG, "🛑 Parando campanha nativa")
+                        val plugin = ServiceRegistry.getPlugin()
+                        plugin?.powerDialerManager?.stopCampaign()
+                        Log.d(TAG, "✅ Campanha parada")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Erro ao parar campanha: ${e.message}", e)
+                    }
+                }
+                
+                else -> {
+                    // Outros comandos vão para o WebView
+                    commandCallback?.onCommandReceived(commandType, commandData)
+                    sendBroadcastToWebView(commandType, commandData)
+                }
+            }
             
             // Marca comando como executado
             updateCommandStatus(commandId, "executed")

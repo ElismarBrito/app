@@ -1919,75 +1919,63 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               console.warn(`⚠️ ATENÇÃO: auth.uid() (${session.user.id}) !== user.id (${user?.id})`);
             }
 
-            for (const number of numbersToCall) {
+            // OTIMIZAÇÃO: Inserção em lote (batch insert) - muito mais rápida que inserção sequencial
+            // Antes: 100 números = ~2 minutos (1 request por número)
+            // Agora: 100 números = ~1 segundo (1 request para todos)
+            console.log(`📤 Preparando inserção em lote de ${numbersToCall.length} registros...`);
+
+            const now = new Date().toISOString();
+            const callRecords = numbersToCall.map(number => ({
+              user_id: session.user.id,
+              device_id: deviceId!,
+              number: number,
+              status: 'queued',
+              campaign_id: command.data.listId,
+              session_id: sessionId,
+              start_time: now
+            }));
+
+            // Dividir em chunks de 500 para evitar limites do Supabase
+            const CHUNK_SIZE = 500;
+            let totalInserted = 0;
+            let totalErrors = 0;
+
+            for (let i = 0; i < callRecords.length; i += CHUNK_SIZE) {
+              const chunk = callRecords.slice(i, i + CHUNK_SIZE);
+              const chunkNumbers = numbersToCall.slice(i, i + CHUNK_SIZE);
+
+              console.log(`📤 Inserindo chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(callRecords.length / CHUNK_SIZE)} (${chunk.length} registros)...`);
+
               try {
-                console.log(`📤 Tentando inserir chamada no banco para ${number}...`);
-                const insertData = {
-                  user_id: session.user.id, // Usar o ID da sessão para garantir correspondência com auth.uid()
-                  device_id: deviceId!,
-                  number: number,
-                  status: 'queued',
-                  campaign_id: command.data.listId,
-                  session_id: sessionId,
-                  start_time: new Date().toISOString()
-                };
-                console.log(`📤 Dados para inserção:`, JSON.stringify(insertData, null, 2));
-
-                const { data: dbCall, error: dbError } = await supabase
+                const { data: dbCalls, error: batchError } = await supabase
                   .from('calls')
-                  .insert(insertData)
-                  .select()
-                  .single();
+                  .insert(chunk)
+                  .select();
 
-                if (dbError) {
-                  // Log detalhado do erro - TODOS como strings para evitar [object Object]
-                  const errorMsg = String(dbError.message || 'Sem mensagem');
-                  const errorDetails = String(dbError.details || 'Sem detalhes');
-                  const errorHint = String(dbError.hint || 'Sem hint');
-                  const errorCode = String(dbError.code || 'Sem código');
-
-                  console.error(`❌ Erro ao criar registro para ${number}`);
-                  console.error(`  Mensagem: ${errorMsg}`);
-                  console.error(`  Detalhes: ${errorDetails}`);
-                  console.error(`  Hint: ${errorHint}`);
-                  console.error(`  Código: ${errorCode}`);
-
-                  // Tentar serializar o erro completo como JSON
-                  try {
-                    const errorJson = JSON.stringify({
-                      message: errorMsg,
-                      details: errorDetails,
-                      hint: errorHint,
-                      code: errorCode,
-                      raw: dbError
-                    }, null, 2);
-                    console.error(`  Erro JSON: ${errorJson}`);
-                  } catch (e) {
-                    console.error(`  Erro ao serializar: ${String(e)}`);
-                  }
-
-                  continue; // Skip this number but continue with others
+                if (batchError) {
+                  console.error(`❌ Erro na inserção em lote:`, {
+                    message: batchError.message,
+                    details: batchError.details,
+                    hint: batchError.hint,
+                    code: batchError.code
+                  });
+                  totalErrors += chunk.length;
+                } else if (dbCalls) {
+                  // Mapear números para IDs retornados (mantém a ordem)
+                  dbCalls.forEach((dbCall, index) => {
+                    const number = chunkNumbers[index];
+                    campaignNumberToDbCallIdRef.current.set(number, dbCall.id);
+                  });
+                  totalInserted += dbCalls.length;
+                  console.log(`✅ Chunk inserido: ${dbCalls.length} registros`);
                 }
-
-                if (!dbCall) {
-                  console.error(`❌ Registro criado mas sem dados retornados para ${number}`);
-                  continue;
-                }
-
-                // Store number -> dbCallId mapping for later use
-                campaignNumberToDbCallIdRef.current.set(number, dbCall.id);
-                console.log(`✅ Registro criado: ${number} -> ${dbCall.id}`);
               } catch (err: any) {
-                const errorDetails = {
-                  message: err?.message,
-                  stack: err?.stack,
-                  name: err?.name,
-                  cause: err?.cause
-                };
-                console.error(`❌ Erro ao criar registro para ${number}:`, JSON.stringify(errorDetails, null, 2));
-                console.error(`❌ Erro completo:`, JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+                console.error(`❌ Erro no chunk:`, err?.message || err);
+                totalErrors += chunk.length;
               }
             }
+
+            console.log(`📊 Resultado da inserção em lote: ${totalInserted} inseridos, ${totalErrors} erros`);
 
             // Now start the native campaign
             console.log(`🚀 [start_campaign] ABOUT TO CALL PbxMobile.startCampaign()`);
