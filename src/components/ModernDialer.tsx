@@ -86,12 +86,13 @@ export function ModernDialer({
   }
 
   const handleEndAllCalls = () => {
-    // CORREÇÃO: Se há campanha ativa, para a campanha completamente
-    // Isso evita que o sistema continue discando novos números após encerrar as chamadas
-    if (campaignProgress) {
-      onStopCampaign()
-    } else {
-      // Sem campanha ativa, apenas encerra as chamadas individualmente
+    // CORREÇÃO CRÍTICA: SEMPRE parar a campanha quando este botão é clicado
+    // Não depende mais do estado de campaignProgress, pois pode estar dessincronizado
+    // O stopCampaign no nativo é seguro de chamar mesmo sem campanha ativa
+    onStopCampaign()
+
+    // Também encerrar chamadas individualmente como fallback
+    if (activeCalls.length > 0) {
       activeCalls.forEach((call) => onEndCall(call.callId))
     }
   }
@@ -226,12 +227,12 @@ export function ModernDialer({
                           <p className="text-xs text-gray-600 flex items-center gap-1.5 mt-0.5">
                             <span
                               className={`w-1.5 h-1.5 rounded-full ${call.state === "active"
-                                  ? "bg-green-500 animate-pulse"
-                                  : call.state === "dialing"
-                                    ? "bg-blue-500 animate-pulse"
-                                    : call.state === "ringing"
-                                      ? "bg-yellow-500 animate-pulse"
-                                      : "bg-gray-400"
+                                ? "bg-green-500 animate-pulse"
+                                : call.state === "dialing"
+                                  ? "bg-blue-500 animate-pulse"
+                                  : call.state === "ringing"
+                                    ? "bg-yellow-500 animate-pulse"
+                                    : "bg-gray-400"
                                 }`}
                             />
                             {call.state === "dialing"

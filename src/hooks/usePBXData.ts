@@ -80,13 +80,15 @@ export const usePBXData = () => {
       console.log(`📱 fetchDevices() encontrou ${devicesList.length} dispositivo(s) no banco (antes do filtro)`)
 
       // Log detalhado de cada dispositivo encontrado
+      const now = Date.now();
       devicesList.forEach((device, index) => {
-        console.log(`  [${index + 1}] ${device.name} (${device.id}) - Status: ${device.status}, Pareado: ${device.paired_at || 'N/A'}`)
+        const lastSeenTime = device.last_seen ? new Date(device.last_seen).getTime() : 0;
+        const diff = device.last_seen ? Math.round((now - lastSeenTime) / 1000) : 'N/A';
+        // console.log(`  [${index + 1}] ${device.name} (${device.id}) - Status: ${device.status}, LastSeen: ${device.last_seen}, Diff: ${diff}s`)
       })
 
       // CORREÇÃO: Filtrar dispositivos 'unpaired' mas incluir dispositivos pareados recentemente
       // Mesmo se status for 'unpaired', incluir se foi pareado nos últimos 10 minutos (pode ser problema de sincronização)
-      const now = Date.now();
       const tenMinutesAgo = now - (10 * 60 * 1000);
 
       let filteredDevices = devicesList.filter(device => {
@@ -126,9 +128,60 @@ export const usePBXData = () => {
         console.log(`  ✅ [${index + 1}] ${device.name} (${device.id}) - Status: ${device.status || 'null'}, Pareado: ${device.paired_at || 'N/A'}`)
       })
 
-      // NOTA: Lógica de detecção de offline REMOVIDA daqui
-      // A detecção de offline agora é centralizada em useDeviceHeartbeat.ts
-      // para evitar duplicação e conflitos
+      // CORREÇÃO: Verificar dispositivos 'online' com last_seen antigo (> 2 minutos) e marcar como offline
+      // Ajustado para 2 minutos para teste (HeartbeatForegroundService roda a cada 30s)
+      const TIMEOUT_MS = 2 * 60 * 1000
+      const GRACE_PERIOD_MS = 2 * 60 * 1000 // Grace period inicial para dispositivos recém-pareados
+
+      const inactiveOnlineDevices = filteredDevices.filter(device => {
+        if (device.status !== 'online') return false
+
+        // Se foi pareado recentemente, não marcar como offline
+        if (device.paired_at) {
+          const timeSincePaired = now - new Date(device.paired_at).getTime()
+          if (timeSincePaired < GRACE_PERIOD_MS) {
+            console.log(`⏳ Dispositivo ${device.name} pareado recentemente (${Math.round(timeSincePaired / 1000)}s atrás), mantendo online`);
+            return false
+          }
+        }
+
+        if (!device.last_seen) {
+          const timeSincePaired = device.paired_at ? now - new Date(device.paired_at).getTime() : Infinity
+          return timeSincePaired > GRACE_PERIOD_MS
+        }
+
+        const timeSinceLastSeen = now - new Date(device.last_seen).getTime()
+        console.log(`📊 Device ${device.name}: last_seen=${device.last_seen}, diff=${Math.round(timeSinceLastSeen / 1000)}s, threshold=${TIMEOUT_MS / 1000}s`)
+        return timeSinceLastSeen > TIMEOUT_MS // Mais de 2 minutos sem heartbeat
+      })
+
+      // Marcar dispositivos inativos como offline no banco
+      if (inactiveOnlineDevices.length > 0) {
+        console.log(`⚠️ fetchDevices() detectou ${inactiveOnlineDevices.length} dispositivo(s) 'online' inativo(s) (last_seen > 5 minutos)`)
+        inactiveOnlineDevices.forEach(async (device) => {
+          try {
+            await supabase
+              .from('devices' as any)
+              .update({
+                status: 'offline',
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', device.id)
+              .eq('user_id', user.id)
+            console.log(`📱 Dispositivo ${device.name} (${device.id}) marcado como offline (inativo)`)
+          } catch (error) {
+            console.error(`Erro ao marcar dispositivo ${device.id} como offline:`, error)
+          }
+        })
+
+        // Remover da lista local imediatamente
+        filteredDevices = filteredDevices.map(device => {
+          if (inactiveOnlineDevices.find(d => d.id === device.id)) {
+            return { ...device, status: 'offline' as const }
+          }
+          return device
+        })
+      }
 
       // Log detalhado para debug
       if (devicesList.length !== filteredDevices.length) {
@@ -136,7 +189,7 @@ export const usePBXData = () => {
         console.warn(`⚠️ fetchDevices() encontrou ${unpairedCount} dispositivo(s) 'unpaired' que foram filtrados`)
       }
 
-      console.log('📱 fetchDevices() retornou', filteredDevices.length, 'dispositivos (filtrados, sem unpaired)')
+      console.log('📱 fetchDevices() retornou', filteredDevices.length, 'dispositivos (filtrados, sem unpaired e inativos corrigidos)')
       setDevices(filteredDevices)
     } catch (error: any) {
       console.log('Devices table not ready yet, using empty array')

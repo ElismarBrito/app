@@ -655,16 +655,21 @@ const PBXDashboard = () => {
   };
 
   // Convert database format to component format
-  // SIMPLIFICADO: Apenas filtra 'unpaired', mostra todos os demais (online e offline)
-  // A detecção de inatividade é feita pelo useDeviceHeartbeat.ts
+  // CORREÇÃO: Filtros adicionais para garantir estado real dos dispositivos
+  const now = Date.now()
+  const fiveMinutesAgo = now - (5 * 60 * 1000)
 
   const formattedDevices = devices
     .filter(device => {
-      // Remove apenas dispositivos 'unpaired'
+      // 1. Remove dispositivos 'unpaired'
       if (device.status === 'unpaired') {
         console.log(`🗑️ Removendo dispositivo 'unpaired': ${device.name} (${device.id})`)
         return false
       }
+
+      // 2. Dispositivos 'online' são exibidos normalmente
+      // A verificação de inatividade é feita no usePBXData com timeout de 3 minutos
+
       return true
     })
     .map(device => ({
@@ -675,9 +680,10 @@ const PBXDashboard = () => {
       lastSeen: device.last_seen || undefined
     }));
 
-  // REMOVIDO: Lógica de detecção de dispositivos inativos
-  // A detecção de offline é feita EXCLUSIVAMENTE pelo useDeviceHeartbeat.ts
-  // para evitar comportamento errático de duas lógicas competindo
+  // CORREÇÃO: Detectar dispositivos inativos (desinstalados ou sem heartbeat)
+  // Verifica dispositivos com last_seen muito antigo e marca como offline
+  // Lógica de verificação de inatividade movida para usePBXData
+  // para centralizar a responsabilidade de mudar status para 'offline'
 
   // Clean up stale calls (calls that are probably already ended but status wasn't updated)
   // CORREÇÃO: Agora mais agressivo - qualquer chamada não-ended com mais de 10 minutos é encerrada

@@ -20,7 +20,7 @@ export const useDeviceStatus = (deviceId: string) => {
         })
         .eq('id', deviceId)
         .eq('user_id', user.id)
-      
+
       isOnlineRef.current = true
       console.log('Dispositivo marcado como online')
     } catch (error) {
@@ -41,14 +41,14 @@ export const useDeviceStatus = (deviceId: string) => {
         .eq('id', deviceId)
         .eq('user_id', user.id)
         .single()
-      
+
       // Se já está 'unpaired', não fazer nada (foi despareamento intencional)
       if (currentDevice?.status === 'unpaired') {
         console.log('Dispositivo já está unpaired, não mudando para offline')
         isOnlineRef.current = false
         return
       }
-      
+
       await supabase
         .from('devices')
         .update({
@@ -58,7 +58,7 @@ export const useDeviceStatus = (deviceId: string) => {
         })
         .eq('id', deviceId)
         .eq('user_id', user.id)
-      
+
       isOnlineRef.current = false
       console.log('Dispositivo marcado como offline')
     } catch (error) {
@@ -98,7 +98,10 @@ export const useDeviceStatus = (deviceId: string) => {
   }
 
   const handleOffline = () => {
-    setOffline()
+    // CORREÇÃO: NÃO marcar offline via eventos web da WebView
+    // O HeartbeatForegroundService.kt (nativo) já cuida do status em background
+    // Se marcarmos offline aqui, sobrescrevemos o status que o serviço nativo mantém correto
+    console.log('⚠️ Evento offline da WebView ignorado - HeartbeatForegroundService cuida do status')
   }
 
   // Detectar quando a janela/aba é fechada
@@ -110,7 +113,7 @@ export const useDeviceStatus = (deviceId: string) => {
         last_seen: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
-      
+
       navigator.sendBeacon(
         `https://jovnndvixqymfvnxkbep.supabase.co/rest/v1/devices?id=eq.${deviceId}&user_id=eq.${user.id}`,
         data
@@ -131,8 +134,9 @@ export const useDeviceStatus = (deviceId: string) => {
     window.addEventListener('beforeunload', handleBeforeUnload)
 
     // Cleanup ao desmontar o hook
+    // CORREÇÃO: NÃO chamar setOffline() aqui pois o HeartbeatForegroundService
+    // continua rodando em background e mantendo o status correto
     return () => {
-      setOffline()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)

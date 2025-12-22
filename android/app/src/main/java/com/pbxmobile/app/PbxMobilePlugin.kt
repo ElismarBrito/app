@@ -598,6 +598,7 @@ class PbxMobilePlugin : Plugin() {
 
     @PluginMethod
     fun stopCampaign(call: PluginCall) {
+        Log.d("PbxMobilePlugin", "🛑 [PLUGIN] stopCampaign chamado pelo frontend")
         powerDialerManager.stopCampaign()
         call.resolve()
     }
@@ -624,6 +625,77 @@ class PbxMobilePlugin : Plugin() {
             Log.e(TAG, "Error updating campaign numbers", e)
             call.reject("Failed to update campaign numbers: ${e.message}")
         }
+    }
+
+    /**
+     * Inicia o HeartbeatForegroundService para manter o dispositivo online
+     * mesmo quando a tela está desligada
+     */
+    @PluginMethod
+    fun startHeartbeat(call: PluginCall) {
+        val deviceId = call.getString("deviceId")
+        val userId = call.getString("userId")
+        val authToken = call.getString("authToken")
+        
+        if (deviceId.isNullOrBlank() || userId.isNullOrBlank()) {
+            call.reject("deviceId and userId are required")
+            return
+        }
+        
+        Log.d(TAG, "Starting HeartbeatForegroundService for device: $deviceId")
+        
+        try {
+            val intent = Intent(context, HeartbeatForegroundService::class.java).apply {
+                putExtra("deviceId", deviceId)
+                putExtra("userId", userId)
+                if (authToken != null) {
+                    putExtra("authToken", authToken)
+                }
+            }
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+            
+            Log.d(TAG, "HeartbeatForegroundService started successfully")
+            call.resolve(JSObject().put("success", true))
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting HeartbeatForegroundService", e)
+            call.reject("Failed to start heartbeat service: ${e.message}")
+        }
+    }
+
+    /**
+     * Para o HeartbeatForegroundService
+     */
+    @PluginMethod
+    fun stopHeartbeat(call: PluginCall) {
+        Log.d(TAG, "Stopping HeartbeatForegroundService")
+        
+        try {
+            val intent = Intent(context, HeartbeatForegroundService::class.java)
+            context.stopService(intent)
+            
+            Log.d(TAG, "HeartbeatForegroundService stopped successfully")
+            call.resolve(JSObject().put("success", true))
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping HeartbeatForegroundService", e)
+            call.reject("Failed to stop heartbeat service: ${e.message}")
+        }
+    }
+
+    /**
+     * Verifica se o HeartbeatForegroundService está rodando
+     */
+    @PluginMethod
+    fun isHeartbeatRunning(call: PluginCall) {
+        val isRunning = HeartbeatForegroundService.isRunning()
+        Log.d(TAG, "HeartbeatForegroundService running: $isRunning")
+        call.resolve(JSObject().put("isRunning", isRunning))
     }
     
     // Event notification methods for services

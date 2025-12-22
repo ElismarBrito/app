@@ -151,21 +151,10 @@ export interface PbxMobilePlugin {
     numbers: string[];
   }): Promise<{ success: boolean; numbersAdded: number }>;
 
-  // --- Heartbeat Service (Background) ---
-  startHeartbeatService(options: {
-    deviceId: string;
-    userId: string;
-  }): Promise<{ started: boolean }>;
-
-  stopHeartbeatService(): Promise<{ stopped: boolean }>;
-
-  // --- Command Listener Service (recebe comandos com tela desligada) ---
-  startCommandListener(options: {
-    deviceId: string;
-    userId: string;
-  }): Promise<{ started: boolean }>;
-
-  stopCommandListener(): Promise<{ stopped: boolean }>;
+  // --- Heartbeat Service (Background Keep-Alive) ---
+  startHeartbeat(options: { deviceId: string; userId: string }): Promise<{ success: boolean }>;
+  stopHeartbeat(): Promise<{ success: boolean }>;
+  isHeartbeatRunning(): Promise<{ isRunning: boolean }>;
 
   // --- Listeners de Eventos ---
   addListener(
