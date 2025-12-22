@@ -65,23 +65,16 @@ class MyInCallService : InCallService() {
         Log.d(TAG, "📞 Notificando estado inicial: $callId -> $state")
         ServiceRegistry.getPlugin()?.notifyCallStateChanged(callId, state, phoneNumber)
         
-        // CORREÇÃO: Atualiza UI imediatamente para chamadas recebidas (ringing) independente de campanha
-        // Para chamadas normais ou recebidas, sempre atualiza para o usuário poder atender
-        val powerDialerManager = ServiceRegistry.getPlugin()?.powerDialerManager
-        val isRingingCall = call.state == Call.STATE_RINGING
-        
-        if (isRingingCall || powerDialerManager == null || !powerDialerManager.hasActiveCampaign()) {
-            // Se é chamada recebida (ringing) ou não há campanha ativa, atualiza imediatamente
-            Log.d(TAG, "📞 Atualizando UI imediatamente (ringing=$isRingingCall, campanha=${powerDialerManager?.hasActiveCampaign()})")
-            updateActiveCallsList()
-        }
+        // CORREÇÃO: Atualiza UI SEMPRE quando uma chamada é adicionada
+        // Isso garante que números discados apareçam na UI imediatamente
+        Log.d(TAG, "📞 Atualizando UI imediatamente para chamada adicionada (state=${call.state})")
+        updateActiveCallsList()
         
         // CORREÇÃO: Abrir app automaticamente quando chamada está tocando
-        if (isRingingCall) {
+        if (call.state == Call.STATE_RINGING) {
             Log.d(TAG, "📱 Chamada recebida detectada! Abrindo app para usuário atender...")
             bringAppToForeground(phoneNumber)
         }
-        // Se há campanha ativa e não é ringing, PowerDialerManager atualizará com throttle
     }
     
     /**
@@ -381,13 +374,13 @@ class MyInCallService : InCallService() {
                 val powerDialerManager = ServiceRegistry.getPlugin()?.powerDialerManager
 
                 if (powerDialerManager != null && powerDialerManager.hasActiveCampaign()) {
-                    // CORREÇÃO: Se há campanha ativa, PowerDialerManager é a fonte única de verdade
                     // Feed the state change into the Power Dialer engine
                     powerDialerManager.updateCallState(callId, call, state)
-                    // PowerDialerManager atualizará a UI com throttle
+                    // CORREÇÃO: Atualiza UI imediatamente também durante campanha
+                    // para garantir que mudanças de estado apareçam instantaneamente
+                    updateActiveCallsList()
                 } else {
-                    // CORREÇÃO: Fallback para chamadas manuais ou quando não há campanha ativa
-                    // Atualiza diretamente para garantir que o frontend receba atualizações
+                    // Fallback para chamadas manuais ou quando não há campanha ativa
                     val stateString = mapCallState(state)
                     if (powerDialerManager == null) {
                         Log.w(TAG, "PowerDialerManager not found, using fallback notification.")
