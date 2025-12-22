@@ -547,13 +547,9 @@ class PowerDialerManager(
                 }
                 
                 // CORREÇÃO BUG #4: Aguarda notificação imediata ou timeout
-                select<Unit> {
-                    poolRefillChannel.onReceive {
-                        // Refill imediato solicitado - não espera timeout
-                    }
-                    onTimeout(poolCheckInterval) {
-                        // Verificação regular após timeout
-                    }
+                // Substituindo select/onTimeout por withTimeoutOrNull para evitar erro de compilação
+                withTimeoutOrNull(poolCheckInterval) {
+                    poolRefillChannel.receive()
                 }
                 
                 // === LIMPEZA DE CHAMADAS PRESAS ===

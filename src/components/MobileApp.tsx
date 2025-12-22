@@ -21,6 +21,7 @@ import { SimSelector } from '@/components/SimSelector';
 import { CallHistoryManager } from '@/components/CallHistoryManager';
 import { Smartphone, Wifi, WifiOff, Phone, PhoneOff, Settings, Play, Square, CreditCard, Pause, SkipForward, LayoutGrid, LayoutList } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { Capacitor } from '@capacitor/core';
 import PbxMobile from '@/plugins/pbx-mobile';
 import type { CallInfo, SimCardInfo, CampaignProgress, CampaignSummary, PluginListenerHandle } from '@/plugins/pbx-mobile';
 import { Network } from '@capacitor/network';
@@ -30,7 +31,7 @@ interface MobileAppProps {
 }
 
 export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { toast } = useToast();
   const { deviceInfo } = useDeviceInfo();
   const { simCards, isLoading: isLoadingSims } = useNativeSimDetection();
@@ -640,7 +641,6 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             updateData.answered_at = new Date().toISOString();
             console.log(`✅ [dialerCallStateChanged] Chamada atendida! answered_at registrado`);
           }
-
           // Se chamada terminou, calcular duração
           const isEnded = ['DISCONNECTED', 'BUSY', 'FAILED', 'NO_ANSWER', 'REJECTED', 'UNREACHABLE', 'disconnected', 'busy', 'failed', 'no_answer', 'rejected', 'unreachable', 'ended'].includes(eventState);
           if (isEnded) {
@@ -819,6 +819,15 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         updateActiveCalls(false); // false = só atualiza se houver mudança
       }, 30000); // Atualiza a cada 30 segundos (verificação periódica de segurança)
 
+      // Iniciar Heartbeat Nativo (Android)
+      if (Capacitor.getPlatform() === 'android' && user?.id) {
+        PbxMobile.startHeartbeat({
+          deviceId: deviceId,
+          userId: user.id,
+          authToken: session?.access_token
+        }).catch(err => console.error('Error starting heartbeat service:', err));
+      }
+
       // Listen for real-time updates on device status (subscription específica do dispositivo)
       const subscription = supabase
         .channel(`device-status-${deviceId}`)
@@ -845,8 +854,13 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
       };
     } else {
       stopHeartbeat();
+
+      // Parar Heartbeat Nativo
+      if (Capacitor.getPlatform() === 'android') {
+        PbxMobile.stopHeartbeat().catch(err => console.error('Error stopping heartbeat:', err));
+      }
     }
-  }, [deviceId, isPaired, startHeartbeat, stopHeartbeat]);
+  }, [deviceId, isPaired, startHeartbeat, stopHeartbeat, user?.id]);
 
   const requestAllPermissions = async () => {
     try {
@@ -1453,6 +1467,19 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
               console.error('❌ Erro ao atualizar status para online após pareamento:', statusError)
             } else {
               console.log('✅ Status atualizado para online após pareamento:', newDeviceId)
+
+              // Iniciar Heartbeat Nativo (Android)
+              if (Capacitor.getPlatform() === 'android') {
+                try {
+                  await PbxMobile.startHeartbeat({
+                    deviceId: newDeviceId,
+                    userId: user.id
+                  });
+                  console.log('💓 Heartbeat Service iniciado após pareamento');
+                } catch (hbError) {
+                  console.error('❌ Erro ao iniciar Heartbeat Service:', hbError);
+                }
+              }
             }
           } catch (error) {
             console.error('❌ Erro ao atualizar status para online:', error)
@@ -2151,9 +2178,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
   const handlePauseCampaign = () => PbxMobile.pauseCampaign();
   const handleResumeCampaign = () => PbxMobile.resumeCampaign();
   const handleStopCampaign = async () => {
+    console.log('🛑🛑🛑 [handleStopCampaign] INICIANDO - Chamando PbxMobile.stopCampaign()');
     try {
       // 1. Parar campanha no native
       await PbxMobile.stopCampaign();
+      console.log('✅ [handleStopCampaign] PbxMobile.stopCampaign() executado com sucesso');
 
       // 2. Aguardar um pouco para as chamadas serem desconectadas
       await new Promise(resolve => setTimeout(resolve, 1500));

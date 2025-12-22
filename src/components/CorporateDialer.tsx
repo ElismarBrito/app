@@ -93,12 +93,17 @@ export const CorporateDialer = ({
   };
 
   const handleEndAllCalls = () => {
-    // CORREÇÃO: Se há campanha ativa, para a campanha completamente
-    // Isso evita que o sistema continue discando novos números após encerrar as chamadas
-    if (campaignProgress) {
-      onStopCampaign();
-    } else {
-      // Sem campanha ativa, apenas encerra as chamadas individualmente
+    console.log('📴 [CorporateDialer] handleEndAllCalls chamado. campaignProgress =', campaignProgress ? 'ATIVO' : 'null');
+
+    // CORREÇÃO CRÍTICA: SEMPRE parar a campanha quando este botão é clicado
+    // Não depende mais do estado de campaignProgress, pois pode estar dessincronizado
+    // O stopCampaign no nativo é seguro de chamar mesmo sem campanha ativa
+    console.log('🛑 [CorporateDialer] Chamando onStopCampaign() para garantir parada completa');
+    onStopCampaign();
+
+    // Também encerrar chamadas individualmente como fallback
+    if (activeCalls.length > 0) {
+      console.log('📞 [CorporateDialer] Encerrando chamadas individualmente como fallback');
       activeCalls.forEach(call => onEndCall(call.callId));
     }
   };
@@ -184,9 +189,9 @@ export const CorporateDialer = ({
                             <p className="font-medium text-sm">{call.number}</p>
                             <div className="flex items-center gap-2 mt-1">
                               <div className={`w-2 h-2 rounded-full ${call.state === 'active' ? 'bg-green-500 animate-pulse' :
-                                  call.state === 'dialing' ? 'bg-yellow-500 animate-pulse' :
-                                    call.state === 'ringing' ? 'bg-blue-500 animate-pulse' :
-                                      'bg-gray-400'
+                                call.state === 'dialing' ? 'bg-yellow-500 animate-pulse' :
+                                  call.state === 'ringing' ? 'bg-blue-500 animate-pulse' :
+                                    'bg-gray-400'
                                 }`} />
                               <p className="text-xs text-muted-foreground capitalize">
                                 {call.state === 'dialing' ? 'Discando...' :
@@ -257,8 +262,8 @@ export const CorporateDialer = ({
                       <p className="font-medium">{call.number}</p>
                       <div className="flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full ${call.state === 'active' ? 'bg-green-400' :
-                            call.state === 'dialing' ? 'bg-yellow-400' :
-                              call.state === 'ringing' ? 'bg-blue-400' : 'bg-gray-400'
+                          call.state === 'dialing' ? 'bg-yellow-400' :
+                            call.state === 'ringing' ? 'bg-blue-400' : 'bg-gray-400'
                           }`} />
                         <p className="text-xs text-white/70 capitalize">
                           {call.state === 'dialing' ? 'Discando...' :
