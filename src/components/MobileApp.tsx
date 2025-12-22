@@ -725,12 +725,21 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
           updateActiveCalls();
         }),
         PbxMobile.addListener('activeCallsChanged', async (event) => {
-          console.log('Event: activeCallsChanged', event.calls);
+          console.log('🔔 [activeCallsChanged] ========== EVENTO RECEBIDO ==========');
+          console.log('🔔 [activeCallsChanged] Calls recebidas:', JSON.stringify(event.calls, null, 2));
+          console.log('🔔 [activeCallsChanged] Quantidade:', event.calls.length);
+
           const currentCount = event.calls.length;
-          setActiveCalls(event.calls);
+
+          // Força uma cópia do array para garantir que React detecte a mudança
+          const callsCopy = [...event.calls];
+          console.log('🔔 [activeCallsChanged] Chamando setActiveCalls com', callsCopy.length, 'chamadas');
+          setActiveCalls(callsCopy);
+          console.log('🔔 [activeCallsChanged] setActiveCalls executado!');
 
           // CORREÇÃO: Usa função consolidada para atualizar banco (evita race conditions)
           await syncActiveCallsCountToDb(currentCount, false);
+          console.log('🔔 [activeCallsChanged] ========== FIM ==========');
         }),
         PbxMobile.addListener('dialerCampaignProgress', (progress) => {
           console.log('Event: dialerCampaignProgress', progress);
@@ -834,12 +843,11 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     if (deviceId && isPaired) {
       startHeartbeat();
 
-      // CORREÇÃO: Atualizar chamadas ativas periodicamente quando pareado
-      // OTIMIZAÇÃO: Intervalo aumentado para 30 segundos (antes era 2s) para reduzir carga no banco
-      // As atualizações em tempo real via eventos já garantem sincronização imediata
+      // CORREÇÃO CRÍTICA: Polling agressivo a cada 1 segundo para garantir atualização da UI
+      // Isso contorna o problema de eventos não sendo processados pela WebView
       const activeCallsInterval = setInterval(() => {
-        updateActiveCalls(false); // false = só atualiza se houver mudança
-      }, 30000); // Atualiza a cada 30 segundos (verificação periódica de segurança)
+        updateActiveCalls(true); // true = força atualização mesmo se não houver mudança
+      }, 1000); // Atualiza a cada 1 segundo
 
       // Listen for real-time updates on device status (subscription específica do dispositivo)
       const subscription = supabase
