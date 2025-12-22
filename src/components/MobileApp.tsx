@@ -285,6 +285,28 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
             setIsPaired(true)
             setIsConnected(true)
 
+            // CORREÇÃO: Iniciar HeartbeatService para manter dispositivo online em background
+            try {
+              await PbxMobile.startHeartbeatService({
+                deviceId: device.id,
+                userId: user.id
+              });
+              console.log('💓 HeartbeatService iniciado ao restaurar pareamento');
+            } catch (heartbeatError) {
+              console.error('❌ Erro ao iniciar HeartbeatService ao restaurar:', heartbeatError);
+            }
+
+            // CORREÇÃO: Iniciar CommandListenerService para receber comandos com tela desligada
+            try {
+              await PbxMobile.startCommandListener({
+                deviceId: device.id,
+                userId: user.id
+              });
+              console.log('📡 CommandListenerService iniciado ao restaurar pareamento');
+            } catch (cmdError) {
+              console.error('❌ Erro ao iniciar CommandListenerService ao restaurar:', cmdError);
+            }
+
             // Verificar permissões (sem pedir, apenas verificar)
             let dialerResult;
             try {
@@ -1187,6 +1209,14 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
     // CORREÇÃO: Parar heartbeat ANTES de tudo para evitar que setOffline() sobrescreva o status
     const currentDeviceId = deviceId;
 
+    // IMPORTANTE: Parar HeartbeatService PRIMEIRO
+    try {
+      await PbxMobile.stopHeartbeatService();
+      console.log('💔 HeartbeatService parado');
+    } catch (heartbeatError) {
+      console.error('❌ Erro ao parar HeartbeatService:', heartbeatError);
+    }
+
     // IMPORTANTE: Parar heartbeat PRIMEIRO para evitar que useDeviceStatus chame setOffline()
     if (currentDeviceId) {
       stopHeartbeat();
@@ -1462,6 +1492,30 @@ export const MobileApp = ({ isStandalone = false }: MobileAppProps) => {
         setDeviceId(newDeviceId);
         setIsConnected(true);
         setIsPaired(true);
+
+        // CORREÇÃO: Iniciar HeartbeatService para manter dispositivo online em background
+        if (user && newDeviceId) {
+          try {
+            await PbxMobile.startHeartbeatService({
+              deviceId: newDeviceId,
+              userId: user.id
+            });
+            console.log('💓 HeartbeatService iniciado para manter dispositivo online em background');
+          } catch (heartbeatError) {
+            console.error('❌ Erro ao iniciar HeartbeatService:', heartbeatError);
+          }
+
+          // CORREÇÃO: Iniciar CommandListenerService para receber comandos com tela desligada
+          try {
+            await PbxMobile.startCommandListener({
+              deviceId: newDeviceId,
+              userId: user.id
+            });
+            console.log('📡 CommandListenerService iniciado para receber comandos em background');
+          } catch (cmdError) {
+            console.error('❌ Erro ao iniciar CommandListenerService:', cmdError);
+          }
+        }
 
         // CORREÇÃO: Salvar pareamento no localStorage para persistência
         if (user) {

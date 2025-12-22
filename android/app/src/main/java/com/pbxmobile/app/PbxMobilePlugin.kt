@@ -101,6 +101,115 @@ class PbxMobilePlugin : Plugin() {
         return simPhoneAccountManager.getDefaultPhoneAccountHandle()
     }
 
+    /**
+     * Inicia o HeartbeatForegroundService para manter o dispositivo online em background
+     */
+    @PluginMethod
+    fun startHeartbeatService(call: PluginCall) {
+        val deviceId = call.getString("deviceId")
+        val userId = call.getString("userId")
+        
+        if (deviceId.isNullOrEmpty() || userId.isNullOrEmpty()) {
+            call.reject("deviceId and userId are required")
+            return
+        }
+        
+        Log.d(TAG, "Starting HeartbeatForegroundService for device: $deviceId")
+        
+        try {
+            val intent = Intent(context, HeartbeatForegroundService::class.java).apply {
+                putExtra("deviceId", deviceId)
+                putExtra("userId", userId)
+            }
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+            
+            Log.d(TAG, "HeartbeatForegroundService started successfully")
+            call.resolve(JSObject().put("started", true))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting HeartbeatForegroundService", e)
+            call.reject("Failed to start heartbeat service: ${e.message}")
+        }
+    }
+
+    /**
+     * Para o HeartbeatForegroundService
+     */
+    @PluginMethod
+    fun stopHeartbeatService(call: PluginCall) {
+        Log.d(TAG, "Stopping HeartbeatForegroundService")
+        
+        try {
+            val intent = Intent(context, HeartbeatForegroundService::class.java)
+            context.stopService(intent)
+            
+            Log.d(TAG, "HeartbeatForegroundService stopped successfully")
+            call.resolve(JSObject().put("stopped", true))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping HeartbeatForegroundService", e)
+            call.reject("Failed to stop heartbeat service: ${e.message}")
+        }
+    }
+
+    /**
+     * Inicia o CommandListenerService para receber comandos do dashboard em background
+     * Funciona mesmo quando a tela está desligada
+     */
+    @PluginMethod
+    fun startCommandListener(call: PluginCall) {
+        val deviceId = call.getString("deviceId")
+        val userId = call.getString("userId")
+        
+        if (deviceId.isNullOrEmpty() || userId.isNullOrEmpty()) {
+            call.reject("deviceId and userId are required")
+            return
+        }
+        
+        Log.d(TAG, "Starting CommandListenerService for device: $deviceId")
+        
+        try {
+            val intent = Intent(context, CommandListenerService::class.java).apply {
+                putExtra("deviceId", deviceId)
+                putExtra("userId", userId)
+            }
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+            
+            Log.d(TAG, "CommandListenerService started successfully")
+            call.resolve(JSObject().put("started", true))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting CommandListenerService", e)
+            call.reject("Failed to start command listener service: ${e.message}")
+        }
+    }
+
+    /**
+     * Para o CommandListenerService
+     */
+    @PluginMethod
+    fun stopCommandListener(call: PluginCall) {
+        Log.d(TAG, "Stopping CommandListenerService")
+        
+        try {
+            val intent = Intent(context, CommandListenerService::class.java)
+            context.stopService(intent)
+            
+            Log.d(TAG, "CommandListenerService stopped successfully")
+            call.resolve(JSObject().put("stopped", true))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping CommandListenerService", e)
+            call.reject("Failed to stop command listener service: ${e.message}")
+        }
+    }
+
     @PluginMethod
     fun requestRoleDialer(call: PluginCall) {
         Log.d(TAG, "requestRoleDialer called") // Adicionar este log
@@ -554,6 +663,12 @@ class PbxMobilePlugin : Plugin() {
     }
     
     fun updateActiveCalls(calls: List<Map<String, Any>>) {
+        Log.d(TAG, "📊 [updateActiveCalls] ========== INÍCIO ==========")
+        Log.d(TAG, "📊 [updateActiveCalls] Enviando ${calls.size} chamadas para frontend")
+        calls.forEachIndexed { index, call ->
+            Log.d(TAG, "📊 [updateActiveCalls] [$index] number=${call["number"]}, state=${call["state"]}, callId=${call["callId"]}")
+        }
+        
         val callsArray = JSArray()
         calls.forEach { callInfo ->
             val callObj = JSObject()
@@ -564,7 +679,9 @@ class PbxMobilePlugin : Plugin() {
         }
         
         val data = JSObject().put("calls", callsArray)
+        Log.d(TAG, "📊 [updateActiveCalls] Chamando notifyListeners('activeCallsChanged')...")
         notifyListeners("activeCallsChanged", data)
+        Log.d(TAG, "📊 [updateActiveCalls] ========== FIM ==========")
     }
     
     @PluginMethod

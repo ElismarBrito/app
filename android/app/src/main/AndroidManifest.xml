@@ -27,6 +27,7 @@
     <!-- Foreground Service permission (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     
     <!-- Full Screen Intent permission (for incoming call notification) -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
@@ -114,6 +115,20 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="phoneCall" />
+        
+        <!-- Heartbeat Service para manter dispositivo online em background -->
+        <service
+            android:name=".HeartbeatForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+        
+        <!-- Command Listener Service para receber comandos do dashboard em background -->
+        <service
+            android:name=".CommandListenerService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
         
         <provider
             android:name="androidx.core.content.FileProvider"

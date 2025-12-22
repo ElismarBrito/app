@@ -123,7 +123,7 @@ export interface PbxMobilePlugin {
   requestAllPermissions(): Promise<{ granted: boolean }>;
   getSimCards(): Promise<{ simCards: SimCardInfo[] }>;
   getDeviceName(): Promise<{ deviceName: string }>;
-  
+
   // --- Funções de Discador (ROLE_DIALER) ---
   requestRoleDialer(): Promise<{ granted: boolean }>;
   hasRoleDialer(): Promise<{ hasRole: boolean }>;
@@ -143,13 +143,29 @@ export interface PbxMobilePlugin {
     listName: string;
     simId?: string;
   }): Promise<{ sessionId: string }>;
-  
+
   pauseCampaign(): Promise<void>;
   resumeCampaign(): Promise<void>;
   stopCampaign(): Promise<void>;
   updateCampaignNumbers(options: {
     numbers: string[];
   }): Promise<{ success: boolean; numbersAdded: number }>;
+
+  // --- Heartbeat Service (Background) ---
+  startHeartbeatService(options: {
+    deviceId: string;
+    userId: string;
+  }): Promise<{ started: boolean }>;
+
+  stopHeartbeatService(): Promise<{ stopped: boolean }>;
+
+  // --- Command Listener Service (recebe comandos com tela desligada) ---
+  startCommandListener(options: {
+    deviceId: string;
+    userId: string;
+  }): Promise<{ started: boolean }>;
+
+  stopCommandListener(): Promise<{ stopped: boolean }>;
 
   // --- Listeners de Eventos ---
   addListener(
@@ -161,7 +177,7 @@ export interface PbxMobilePlugin {
     eventName: 'conferenceEvent',
     listenerFunc: (event: ConferenceEvent) => void,
   ): Promise<PluginListenerHandle>;
-  
+
   addListener(
     eventName: 'activeCallsChanged',
     listenerFunc: (event: { calls: CallInfo[] }) => void,

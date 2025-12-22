@@ -126,61 +126,9 @@ export const usePBXData = () => {
         console.log(`  ✅ [${index + 1}] ${device.name} (${device.id}) - Status: ${device.status || 'null'}, Pareado: ${device.paired_at || 'N/A'}`)
       })
 
-      // CORREÇÃO: Verificar dispositivos 'online' com last_seen antigo (> 1 minuto) e marcar como offline imediatamente
-      // IMPORTANTE: Não marcar como offline se foi pareado recentemente (últimos 2 minutos)
-      const ONE_MINUTE_MS = 60 * 1000
-      const TWO_MINUTES_MS = 2 * 60 * 1000 // Grace period para dispositivos recém-pareados
-
-      const inactiveOnlineDevices = filteredDevices.filter(device => {
-        if (device.status !== 'online') return false
-
-        // Se foi pareado recentemente (últimos 2 minutos), não marcar como offline
-        if (device.paired_at) {
-          const timeSincePaired = now - new Date(device.paired_at).getTime()
-          if (timeSincePaired < TWO_MINUTES_MS) {
-            console.log(`⏳ Dispositivo ${device.name} pareado recentemente (${Math.round(timeSincePaired / 1000)}s atrás), mantendo online`);
-            return false // Não marcar como inativo se foi pareado recentemente
-          }
-        }
-
-        if (!device.last_seen) {
-          // Sem last_seen mas pareado há mais de 2 minutos = inativo
-          const timeSincePaired = device.paired_at ? now - new Date(device.paired_at).getTime() : Infinity
-          return timeSincePaired > TWO_MINUTES_MS
-        }
-
-        const timeSinceLastSeen = now - new Date(device.last_seen).getTime()
-        console.log(`📊 Dispositivo ${device.name}: last_seen há ${Math.round(timeSinceLastSeen / 1000)}s (limite: ${ONE_MINUTE_MS / 1000}s)`)
-        return timeSinceLastSeen > ONE_MINUTE_MS // Mais de 1 minuto sem heartbeat
-      })
-
-      // Marcar dispositivos inativos como offline no banco
-      if (inactiveOnlineDevices.length > 0) {
-        console.log(`⚠️ fetchDevices() detectou ${inactiveOnlineDevices.length} dispositivo(s) 'online' inativo(s) (last_seen > 5 minutos)`)
-        inactiveOnlineDevices.forEach(async (device) => {
-          try {
-            await supabase
-              .from('devices' as any)
-              .update({
-                status: 'offline',
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', device.id)
-              .eq('user_id', user.id)
-            console.log(`📱 Dispositivo ${device.name} (${device.id}) marcado como offline (inativo)`)
-          } catch (error) {
-            console.error(`Erro ao marcar dispositivo ${device.id} como offline:`, error)
-          }
-        })
-
-        // Remover da lista local imediatamente
-        filteredDevices = filteredDevices.map(device => {
-          if (inactiveOnlineDevices.find(d => d.id === device.id)) {
-            return { ...device, status: 'offline' as const }
-          }
-          return device
-        })
-      }
+      // NOTA: Lógica de detecção de offline REMOVIDA daqui
+      // A detecção de offline agora é centralizada em useDeviceHeartbeat.ts
+      // para evitar duplicação e conflitos
 
       // Log detalhado para debug
       if (devicesList.length !== filteredDevices.length) {
@@ -188,7 +136,7 @@ export const usePBXData = () => {
         console.warn(`⚠️ fetchDevices() encontrou ${unpairedCount} dispositivo(s) 'unpaired' que foram filtrados`)
       }
 
-      console.log('📱 fetchDevices() retornou', filteredDevices.length, 'dispositivos (filtrados, sem unpaired e inativos corrigidos)')
+      console.log('📱 fetchDevices() retornou', filteredDevices.length, 'dispositivos (filtrados, sem unpaired)')
       setDevices(filteredDevices)
     } catch (error: any) {
       console.log('Devices table not ready yet, using empty array')

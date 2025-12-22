@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface NumberList {
   id: string;
@@ -56,6 +57,7 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({
   onStopCampaignAll,
   activeCampaignForAll
 }) => {
+  const { user } = useAuth();
   const [callNumber, setCallNumber] = useState('');
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [selectedList, setSelectedList] = useState<string | null>(null);
@@ -67,8 +69,14 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({
   // Dispositivos online
   const onlineDevices = devices.filter(d => d.status === 'online');
 
+  /**
+   * Envia comando para dispositivo via broadcast E persiste na tabela device_commands.
+   * O CommandListenerService no Android faz polling desta tabela para receber comandos
+   * mesmo quando a tela está desligada.
+   */
   const sendCommandToDevice = async (deviceId: string, command: any) => {
     try {
+      // 1. Enviar via broadcast (para dispositivos com tela ligada - entrega imediata)
       await supabase
         .channel('device-commands')
         .send({
@@ -79,6 +87,26 @@ export const DevicesTab: React.FC<DevicesTabProps> = ({
             ...command
           }
         });
+
+      // 2. Persistir na tabela device_commands (para dispositivos com tela desligada - polling)
+      if (user) {
+        const { error } = await supabase
+          .from('device_commands')
+          .insert({
+            device_id: deviceId,
+            user_id: user.id,
+            command: command.command,
+            data: command.data || {},
+            status: 'pending'
+          });
+
+        if (error) {
+          console.warn('⚠️ Erro ao persistir comando na tabela device_commands:', error);
+          // Não falha a operação, pois o broadcast ainda pode funcionar
+        } else {
+          console.log('📝 Comando persistido para entrega offline:', command.command);
+        }
+      }
     } catch (error) {
       console.error('Error sending command to device:', error);
     }

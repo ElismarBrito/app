@@ -655,32 +655,16 @@ const PBXDashboard = () => {
   };
 
   // Convert database format to component format
-  // CORREÇÃO: Filtros adicionais para garantir estado real dos dispositivos
-  const now = Date.now()
-  const fiveMinutesAgo = now - (5 * 60 * 1000)
+  // SIMPLIFICADO: Apenas filtra 'unpaired', mostra todos os demais (online e offline)
+  // A detecção de inatividade é feita pelo useDeviceHeartbeat.ts
 
   const formattedDevices = devices
     .filter(device => {
-      // 1. Remove dispositivos 'unpaired'
+      // Remove apenas dispositivos 'unpaired'
       if (device.status === 'unpaired') {
         console.log(`🗑️ Removendo dispositivo 'unpaired': ${device.name} (${device.id})`)
         return false
       }
-
-      // 2. Remove dispositivos 'online' inativos (sem heartbeat há mais de 5 minutos)
-      if (device.status === 'online') {
-        if (!device.last_seen) {
-          console.log(`⚠️ Dispositivo 'online' sem last_seen, considerando inativo: ${device.name}`)
-          return false
-        }
-        const lastSeenTime = new Date(device.last_seen).getTime()
-        const timeSinceLastSeen = now - lastSeenTime
-        if (timeSinceLastSeen > fiveMinutesAgo) {
-          console.log(`⚠️ Dispositivo 'online' inativo (last_seen há ${Math.round(timeSinceLastSeen / 60000)} minutos): ${device.name}`)
-          return false // Não mostrar até ser marcado como 'offline' no banco
-        }
-      }
-
       return true
     })
     .map(device => ({
@@ -691,46 +675,9 @@ const PBXDashboard = () => {
       lastSeen: device.last_seen || undefined
     }));
 
-  // CORREÇÃO: Detectar dispositivos inativos (desinstalados ou sem heartbeat)
-  // Verifica dispositivos com last_seen muito antigo e marca como offline
-  useEffect(() => {
-    if (!devices.length || loading) return;
-
-    const checkInactiveDevices = setInterval(() => {
-      const now = Date.now();
-      const fiveMinutesAgo = new Date(now - (5 * 60 * 1000)).toISOString(); // 5 minutos sem heartbeat
-
-      // Dispositivos online que não atualizaram last_seen há mais de 5 minutos
-      const inactiveDevices = devices.filter(device => {
-        if (device.status !== 'online') return false;
-        if (!device.last_seen) return true; // Se não tem last_seen, considerar inativo
-
-        const lastSeenTime = new Date(device.last_seen).getTime();
-        const timeSinceLastSeen = now - lastSeenTime;
-
-        // Se passou mais de 5 minutos sem atualização, considerar inativo
-        return timeSinceLastSeen > (5 * 60 * 1000);
-      });
-
-      // Marcar dispositivos inativos como offline
-      if (inactiveDevices.length > 0) {
-        console.log(`⚠️ Detectados ${inactiveDevices.length} dispositivos inativos (sem heartbeat há mais de 5 minutos)`)
-        inactiveDevices.forEach(async (device) => {
-          try {
-            await updateDeviceStatus(device.id, {
-              status: 'offline',
-              last_seen: device.last_seen || new Date().toISOString()
-            });
-            console.log(`📱 Dispositivo ${device.name} marcado como offline (inativo)`)
-          } catch (error) {
-            console.error(`Erro ao marcar dispositivo ${device.id} como offline:`, error)
-          }
-        });
-      }
-    }, 30000); // Verifica a cada 30 segundos
-
-    return () => clearInterval(checkInactiveDevices);
-  }, [devices, loading, updateDeviceStatus]);
+  // REMOVIDO: Lógica de detecção de dispositivos inativos
+  // A detecção de offline é feita EXCLUSIVAMENTE pelo useDeviceHeartbeat.ts
+  // para evitar comportamento errático de duas lógicas competindo
 
   // Clean up stale calls (calls that are probably already ended but status wasn't updated)
   // CORREÇÃO: Agora mais agressivo - qualquer chamada não-ended com mais de 10 minutos é encerrada
